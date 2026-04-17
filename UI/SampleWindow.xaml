@@ -1,0 +1,12 @@
+<Window
+    x:Class="VisionTool.UI.SampleWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:ui="clr-namespace:VisionTool.UI"
+    Title="Dynamic Config Sample"
+    Width="900"
+    Height="600">
+    <Grid>
+        <ui:DynamicConfigView x:Name="DynamicView" />
+    </Grid>
+</Window>
