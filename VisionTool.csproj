@@ -26,8 +26,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\wh_multi_maincutter\VisionTool.Enums\VisionTool.Enums.csproj" />
-    <ProjectReference Include="..\..\wh_multi_maincutter\WHWpf.Theming\WHWpf.Theming.csproj" />
+    <ProjectReference Include="..\..\New_Mode\wh_multi_maincutter\VisionTool.Enums\VisionTool.Enums.csproj" />
+    <ProjectReference Include="..\..\New_Mode\wh_multi_maincutter\WHWpf.Theming\WHWpf.Theming.csproj" />
   </ItemGroup>
 
   <ItemGroup>

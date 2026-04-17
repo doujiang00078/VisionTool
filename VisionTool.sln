@@ -5,9 +5,9 @@ VisualStudioVersion = 18.6.11709.129
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VisionTool", "VisionTool.csproj", "{60071F2C-EA4F-0A78-64C2-2280F7C42102}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WHWpf.Theming", "..\..\wh_multi_maincutter\WHWpf.Theming\WHWpf.Theming.csproj", "{B56D768D-FD65-9608-0470-446DF3C1F256}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WHWpf.Theming", "..\..\New_Mode\wh_multi_maincutter\WHWpf.Theming\WHWpf.Theming.csproj", "{98F7BD87-C9F2-D152-EEB5-3286788BD571}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VisionTool.Enums", "..\..\wh_multi_maincutter\VisionTool.Enums\VisionTool.Enums.csproj", "{CF1690E5-03AE-F73B-FCE4-D8D209E223A1}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VisionTool.Enums", "..\..\New_Mode\wh_multi_maincutter\VisionTool.Enums\VisionTool.Enums.csproj", "{5ABAF870-D410-AD7B-1146-6EEDA0CADC4A}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -19,14 +19,14 @@ Global
 		{60071F2C-EA4F-0A78-64C2-2280F7C42102}.Debug|x64.Build.0 = Debug|x64
 		{60071F2C-EA4F-0A78-64C2-2280F7C42102}.Release|x64.ActiveCfg = Release|x64
 		{60071F2C-EA4F-0A78-64C2-2280F7C42102}.Release|x64.Build.0 = Release|x64
-		{B56D768D-FD65-9608-0470-446DF3C1F256}.Debug|x64.ActiveCfg = Debug|x64
-		{B56D768D-FD65-9608-0470-446DF3C1F256}.Debug|x64.Build.0 = Debug|x64
-		{B56D768D-FD65-9608-0470-446DF3C1F256}.Release|x64.ActiveCfg = Release|x64
-		{B56D768D-FD65-9608-0470-446DF3C1F256}.Release|x64.Build.0 = Release|x64
-		{CF1690E5-03AE-F73B-FCE4-D8D209E223A1}.Debug|x64.ActiveCfg = Debug|x64
-		{CF1690E5-03AE-F73B-FCE4-D8D209E223A1}.Debug|x64.Build.0 = Debug|x64
-		{CF1690E5-03AE-F73B-FCE4-D8D209E223A1}.Release|x64.ActiveCfg = Release|x64
-		{CF1690E5-03AE-F73B-FCE4-D8D209E223A1}.Release|x64.Build.0 = Release|x64
+		{98F7BD87-C9F2-D152-EEB5-3286788BD571}.Debug|x64.ActiveCfg = Debug|x64
+		{98F7BD87-C9F2-D152-EEB5-3286788BD571}.Debug|x64.Build.0 = Debug|x64
+		{98F7BD87-C9F2-D152-EEB5-3286788BD571}.Release|x64.ActiveCfg = Release|x64
+		{98F7BD87-C9F2-D152-EEB5-3286788BD571}.Release|x64.Build.0 = Release|x64
+		{5ABAF870-D410-AD7B-1146-6EEDA0CADC4A}.Debug|x64.ActiveCfg = Debug|x64
+		{5ABAF870-D410-AD7B-1146-6EEDA0CADC4A}.Debug|x64.Build.0 = Debug|x64
+		{5ABAF870-D410-AD7B-1146-6EEDA0CADC4A}.Release|x64.ActiveCfg = Release|x64
+		{5ABAF870-D410-AD7B-1146-6EEDA0CADC4A}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
