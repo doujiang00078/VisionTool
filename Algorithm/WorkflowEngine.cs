@@ -522,7 +522,7 @@ namespace VisionTool.Algorithm
         /// </summary>
         private void ResetWorkflowState()
         {
-            _context.StepOutputs.Clear();
+            //_context.StepOutputs.Clear();
 
             // 重新初始化入度数组
             int count = _tasks.Count;
