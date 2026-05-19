@@ -200,6 +200,10 @@ namespace VisionTool.Models
 			// 注意：不释放 CurrentImage，它是外部传入的引用，由调用者(PrecessRun)管理
 			_currentImage = null;
 
+			// 释放模板图像
+			_modeImage?.Dispose();
+			_modeImage = null;
+
 			foreach (var kvp in StepOutputs)
 			{
 				if (kvp.Value?.DebugObjects != null)
@@ -226,6 +230,20 @@ namespace VisionTool.Models
 				if (kvp.Value?.Other != null)
 				{
 					foreach (var obj in kvp.Value.Other)
+					{
+						obj.Value?.Dispose();
+					}
+				}
+				if (kvp.Value?.DefectiveReg != null)
+				{
+					foreach (var obj in kvp.Value.DefectiveReg)
+					{
+						obj.Value?.Dispose();
+					}
+				}
+				if (kvp.Value?.DefectiveOther != null)
+				{
+					foreach (var obj in kvp.Value.DefectiveOther)
 					{
 						obj.Value?.Dispose();
 					}

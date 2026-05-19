@@ -94,6 +94,7 @@ namespace VisionTool.Models
                     item.Value?.Dispose();
                 }
             }
+            Reg.Clear();
             if (Other != null)
             {
                 foreach (var item in Other)
@@ -101,6 +102,7 @@ namespace VisionTool.Models
                     item.Value?.Dispose();
                 }
             }
+            Other.Clear();
             if (Img != null)
             {
                 foreach (var item in Img)
@@ -108,12 +110,22 @@ namespace VisionTool.Models
                     item.Value?.Dispose();
                 }
             }
+            Img.Clear();
             if (DefectiveReg != null)
             {
                 foreach (var item in DefectiveReg)
                 {
                     item.Value?.Dispose();
                 }
+                DefectiveReg.Clear();
+            }
+            if (DefectiveOther != null)
+            {
+                foreach (var item in DefectiveOther)
+                {
+                    item.Value?.Dispose();
+                }
+                DefectiveOther.Clear();
             }
         }
     }

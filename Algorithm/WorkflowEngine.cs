@@ -647,12 +647,17 @@ namespace VisionTool.Algorithm
         public void Dispose()
         {
             _workflowTcs?.TrySetCanceled();
+
+            // 先刷新通知队列，确保所有 HObject 资源被正确释放
+            FlushStatusNotifications();
+
+            // 释放上下文（内部会释放 StepOutputs 中所有 InspectionStepResult 的 HObject 资源）
             _context?.Dispose();
             _context = null;
 
             foreach (var task in _tasks.Values)
             {
-                (task.GetLatestResult() as IDisposable)?.Dispose();
+                task.GetLatestResult()?.Dispose();
             }
             _tasks.Clear();
             _downstreamDependencies.Clear();
