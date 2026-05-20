@@ -1,0 +1,56 @@
+<!-- 
+  全局项目编译配置文件
+  此文件中的配置会自动应用到解决方案中所有项目
+  避免在各个 .csproj 文件中重复配置相同的属性
+-->
+<Project>
+  <PropertyGroup>
+    <!-- C# 语言版本，14 对应 C# 14.0 -->
+    <LangVersion>13</LangVersion>
+    
+    <!-- 目标框架：.NET Framework 4.8 -->
+    <TargetFramework>net48</TargetFramework>
+    
+    <!-- 编译输出的目标平台架构：64位 -->
+    <PlatformTarget>x64</PlatformTarget>
+    
+    <!-- Visual Studio 解决方案配置管理器中可选择的平台列表 -->
+    <Platforms>x64</Platforms>
+    
+    <!-- 禁用自动生成 AssemblyInfo，使用项目中已有的 AssemblyInfo.cs -->
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    
+    <!-- 禁用自动生成 TargetFrameworkAttribute 特性 -->
+    <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
+    
+    <!-- 禁止在输出路径中附加目标框架名称（如 net48） -->
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    
+    <!-- 启用确定性构建，相同源代码生成相同的二进制文件 -->
+    <Deterministic>true</Deterministic>
+    
+    <!-- 自动生成绑定重定向，解决程序集版本冲突问题 -->
+    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+  </PropertyGroup>
+
+  <!-- Debug 调试配置 -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
+    <!-- 生成完整的调试符号，便于断点调试 -->
+    <DebugType>full</DebugType>
+  </PropertyGroup>
+
+  <!-- Release 发布配置 -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <!-- 仅生成 PDB 文件，用于生产环境的异常堆栈跟踪 -->
+    <DebugType>pdbonly</DebugType>
+    
+    <!-- 启用编译器优化，提升运行性能 -->
+    <Optimize>true</Optimize>
+  </PropertyGroup>
+
+  <!-- 统一输出路径配置，使用变量自动适应不同配置 -->
+  <PropertyGroup>
+    <OutputPath>bin\$(Platform)\$(Configuration)\</OutputPath>
+  </PropertyGroup>
+
+</Project>
