@@ -331,6 +331,11 @@ namespace VisionTool.Algorithm
 			return _context.ModeImage;
 		}
 
+		public Dictionary<string, HObject> GetImage()
+		{
+			return _context.Image;
+		}
+
 		/// <summary>
 		/// 获取当前流程中所有缺陷检测算法的名称列表。
 		/// </summary>

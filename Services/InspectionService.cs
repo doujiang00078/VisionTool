@@ -205,6 +205,11 @@ namespace VisionTool.Services
 			return _inspectionProgram.GetModeImage();
 		}
 
+		public Dictionary<string, HObject> GetImage()
+		{
+			return _inspectionProgram.GetImage();
+		}
+
 		/// <summary>
 		/// 获取当前流程缺陷名称列表
 		/// </summary>

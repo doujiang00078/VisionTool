@@ -149,6 +149,11 @@ namespace VisionTool.Interfaces
 			return _inspectionService.GetModeImage();
 		}
 
+		public Dictionary<string, HObject> GetImage()
+		{
+			return _inspectionService.GetImage();
+		}
+
 		// 任何子Presenter需要的InspectionService方法都可以通过这里暴露
 	}
 }
