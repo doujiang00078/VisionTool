@@ -1,9 +1,11 @@
 using HalconDotNet;
+using MstImagelib;
+using MstPicbox;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
-using System.Windows.Forms;
+using System.Windows;
 using VisionTool.Interfaces;
 using VisionTool.Models;
 
@@ -33,9 +35,9 @@ namespace VisionTool.UI.Presenters
         protected InspectionServiceContext _serviceContext;
 
         /// <summary>
-        /// 持有View的实际UserControl实例
+        /// 持有View的实际UIElement实例
         /// </summary>
-        protected UserControl _viewControl;
+        protected UIElement _viewControl;
 
         /// <summary>
         /// 标记Presenter是否已初始化，确保初始化仅执行一次
@@ -49,6 +51,12 @@ namespace VisionTool.UI.Presenters
 
         /// <inheritdoc/>
         public virtual bool CanSaveParameters => true;
+
+        /// <summary>
+        /// 主视图的 PicboxControl 引用（由主 Presenter 注入）。
+        /// 非 null 时，ShowImage 统一操作主控件而非子视图本地控件。
+        /// </summary>
+        public PicboxControl? MainPicboxControl { get; set; }
 
         #region 公共方法
 
@@ -69,7 +77,23 @@ namespace VisionTool.UI.Presenters
         /// <param name="imageHObject">待显示的Halcon图像对象</param>
         public void ShowImage(HObject imageHObject)
         {
-            _view.ShowImage(imageHObject);
+            if (MainPicboxControl != null)
+            {
+                try
+                {
+                    MainPicboxControl.Clear();
+                    var bmp = new HalconImage().SwitchNetImage(imageHObject);
+                    MainPicboxControl.SetImage(bmp, true, false);
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"ShowImage via MainPicboxControl failed: {ex.Message}");
+                }
+            }
+            else
+            {
+                _view.ShowImage(imageHObject);
+            }
         }
 
         /// <summary>
@@ -112,8 +136,8 @@ namespace VisionTool.UI.Presenters
         /// <summary>
         /// 获取关联的View控件
         /// </summary>
-        /// <returns>UserControl实例</returns>
-        public UserControl GetViewControl() => _viewControl;
+        /// <returns>UIElement实例</returns>
+        public UIElement GetViewControl() => _viewControl;
 
         /// <summary>
         /// 处理任务状态更新
@@ -123,9 +147,9 @@ namespace VisionTool.UI.Presenters
         public virtual void HandleTaskStatusUpdate(WorkflowTaskStatus status)
         {
             // 确保UI更新在UI线程上进行
-            if (_viewControl.InvokeRequired)
+            if (!_viewControl.Dispatcher.CheckAccess())
             {
-                _viewControl.Invoke(new Action(() => HandleTaskStatusUpdate(status)));
+                _viewControl.Dispatcher.Invoke(new Action(() => HandleTaskStatusUpdate(status)));
                 return;
             }
 
@@ -148,25 +172,11 @@ namespace VisionTool.UI.Presenters
 
         /// <summary>
         /// 获取实际的IAlgorithmTaskView实例
-        /// 支持两种情况：
-        /// 1. viewControl的Tag属性包含WPF控件（实现IAlgorithmTaskView接口）
-        /// 2. viewControl本身实现了IAlgorithmTaskView接口
+        /// viewControl 本身实现了 IAlgorithmTaskView 接口
         /// </summary>
-        /// <param name="viewControl">Windows Forms UserControl实例</param>
-        /// <returns>实现IAlgorithmTaskView接口的对象</returns>
-        /// <remarks>
-        /// 该方法允许在WinForms中嵌入WPF控件，并通过Tag属性关联IAlgorithmTaskView实现。
-        /// 这种设计提高了灵活性，支持不同的UI框架组合。
-        /// </remarks>
-        public static IAlgorithmTaskView GetActualView(UserControl viewControl)
+        /// <param name="viewControl">WPF UIElement 实例</param>
+        public static IAlgorithmTaskView GetActualView(UIElement viewControl)
         {
-            // 首先检查Tag中是否包含WPF控件的IAlgorithmTaskView实现
-            if (viewControl.Tag is IAlgorithmTaskView wpfView)
-            {
-                return wpfView;
-            }
-
-            // 否则假定viewControl本身实现了IAlgorithmTaskView接口
             return (IAlgorithmTaskView)viewControl;
         }
 
@@ -235,7 +245,7 @@ namespace VisionTool.UI.Presenters
         /// <param name="view">实现IAlgorithmTaskView接口的View对象</param>
         /// <param name="viewControl">关联的Windows Forms UserControl实例</param>
         /// <exception cref="ArgumentNullException">当view或viewControl为null时抛出</exception>
-        protected BaseAlgorithmTaskPresenter(string taskName, IAlgorithmTaskView view, UserControl viewControl)
+        protected BaseAlgorithmTaskPresenter(string taskName, IAlgorithmTaskView view, UIElement viewControl)
         {
             TaskName = taskName;
             _view = view ?? throw new ArgumentNullException(nameof(view));

@@ -1,7 +1,8 @@
 ﻿using HalconDotNet;
+using MstPicbox;
 using System;
 using System.Collections.Generic;
-using System.Windows.Forms;
+using System.Windows;
 using VisionTool.Models;
 
 namespace VisionTool.UI.Views
@@ -56,7 +57,7 @@ namespace VisionTool.UI.Views
         /// 清除并显示新的子任务视图
         /// </summary>
         /// <param name="taskViewControl">要显示的任务详情视图控件</param>
-        void ShowTaskDetailView(UserControl taskViewControl);
+        void ShowTaskDetailView(UIElement taskViewControl);
 
         /// <summary>
         /// 清除当前显示的子任务视图
@@ -117,5 +118,10 @@ namespace VisionTool.UI.Views
         /// 是否使用当前图像（勾选复选框时返回 true）
         /// </summary>
         bool UseCurrentImage { get; }
+
+        /// <summary>
+        /// 获取主视图的 Halcon 图像显示控件，供子 Presenter 统一操作。
+        /// </summary>
+        PicboxControl PicBoxControl { get; }
     }
 }
