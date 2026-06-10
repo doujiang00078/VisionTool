@@ -60,6 +60,11 @@ namespace VisionTool.UI.Presenters
 		/// </summary>
 		public PicboxControl? MainPicboxControl { get; set; }
 
+		/// <summary>
+		/// 当前持有的显示图像副本，用于生命周期管理
+		/// </summary>
+		private HObject _currentDisplayImage;
+
 		#region 公共方法
 
 		/// <summary>
@@ -74,11 +79,15 @@ namespace VisionTool.UI.Presenters
 		}
 
 		/// <summary>
-		/// 显示离线加载的图片
+		/// 显示离线加载的图片（管理传入图像的生命周期）
 		/// </summary>
-		/// <param name="imageHObject">待显示的Halcon图像对象</param>
+		/// <param name="imageHObject">待显示的Halcon图像对象（调用方转移所有权）</param>
 		public void ShowImage(HObject imageHObject)
 		{
+			// 释放上一次持有的图像副本
+			_currentDisplayImage?.Dispose();
+			_currentDisplayImage = imageHObject;
+
 			if (MainPicboxControl != null)
 			{
 				_view.ShowImage(imageHObject, MainPicboxControl);
@@ -179,6 +188,10 @@ namespace VisionTool.UI.Presenters
 		/// </remarks>
 		public void Dispose()
 		{
+			// 释放持有的图像副本
+			_currentDisplayImage?.Dispose();
+			_currentDisplayImage = null;
+
 			// 解除View的所有事件订阅
 			_view.ParameterChanged -= OnParameterChanged;
 			_view.RunToThisTaskClicked -= OnRunToThisTaskClicked;
@@ -330,7 +343,7 @@ namespace VisionTool.UI.Presenters
 
 			if (MainPicboxControl != null)
 			{
-				_view.ShowImage(_serviceContext.GetModeImage(), MainPicboxControl);
+				ShowImage(_serviceContext.GetModeImage());
 			}
 
 			// 获取并显示任务结果

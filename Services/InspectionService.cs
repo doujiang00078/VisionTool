@@ -197,12 +197,13 @@ namespace VisionTool.Services
 		}
 
 		/// <summary>
-		/// 获取模板图
+		/// 获取模板图（返回副本，调用方负责 Dispose）
 		/// </summary>
-		/// <returns></returns>
+		/// <returns>模板图像的副本；若模板图未初始化则返回 null</returns>
 		public HObject GetModeImage()
 		{
-			return _inspectionProgram.GetModeImage();
+			var img = _inspectionProgram.GetModeImage();
+			return img?.IsInitialized() == true ? img.CopyObj(1, -1) : null;
 		}
 
 		public Dictionary<string, HObject> GetImage()
