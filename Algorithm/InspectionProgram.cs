@@ -336,6 +336,11 @@ namespace VisionTool.Algorithm
 			return _context.Image;
 		}
 
+		public string GetPath()
+		{
+			return _context.Path;
+		}
+
 		/// <summary>
 		/// 获取当前流程中所有缺陷检测算法的名称列表。
 		/// </summary>

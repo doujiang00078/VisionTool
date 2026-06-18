@@ -149,6 +149,11 @@ namespace VisionTool.Interfaces
 			return _inspectionService.GetModeImage();
 		}
 
+		public string GetPath()
+		{
+			return _inspectionService.GetPath();
+		}
+
 		public Dictionary<string, HObject> GetImage()
 		{
 			return _inspectionService.GetImage();

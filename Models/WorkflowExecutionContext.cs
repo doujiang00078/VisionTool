@@ -26,7 +26,7 @@ namespace VisionTool.Models
 		/// </summary>
 		private HObject _modeImage;
 
-		public string Path;
+		public string Path = "";
 
 		/// <summary>
 		/// 获取或设置模板图像。

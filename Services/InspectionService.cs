@@ -211,6 +211,11 @@ namespace VisionTool.Services
 			return _inspectionProgram.GetImage();
 		}
 
+		public string GetPath()
+		{
+			return _inspectionProgram.GetPath();
+		}
+
 		/// <summary>
 		/// 获取当前流程缺陷名称列表
 		/// </summary>
