@@ -52,7 +52,7 @@ namespace VisionTool.Algorithm
 		{
 			// 创建工作流执行上下文并传入模板图像
 			_context = new WorkflowExecutionContext(modeImage);
-
+			_context.Path = path;
 			// 初始化工作流引擎
 			_workflowEngine = new WorkflowEngine(_context);
 
