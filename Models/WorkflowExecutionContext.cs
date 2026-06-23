@@ -73,7 +73,7 @@ namespace VisionTool.Models
 		/// <summary>
 		/// 图像集合的私有字段。
 		/// </summary>
-		private Dictionary<string, HObject> _image;
+		private readonly HObjectMap _image = [];
 
 		/// <summary>
 		/// 获取或设置当前图像集合（多通道图像）。
@@ -83,24 +83,12 @@ namespace VisionTool.Models
 		/// 设置新集合时会自动释放旧集合中所有图像的资源。
 		/// 字典的键为通道名称，值为对应的 HObject 图像对象。
 		/// </remarks>
-		public Dictionary<string, HObject> Image
+		public HObjectMap Image
 		{
 			get => _image;
 			set
 			{
-				if (_image != null)
-				{
-					foreach (var keyValue in _image)
-					{
-						keyValue.Value?.Dispose();
-					}
-					_image.Clear();
-					_image = value;
-				}
-				else
-				{
-					_image = value;
-				}
+				_image.SetAll(value);
 			}
 		}
 

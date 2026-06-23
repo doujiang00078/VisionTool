@@ -42,27 +42,27 @@ namespace VisionTool.Models
         /// <summary>
         /// 图像
         /// </summary>
-        public Dictionary<string, HObject> Img { get; set; }
+        public HObjectMap Img { get; set; }
 
         /// <summary>
         /// 区域
         /// </summary>
-        public Dictionary<string, HObject> Reg { get; set; }
+        public HObjectMap Reg { get; set; }
 
         /// <summary>
         /// 数值
         /// </summary>
-        public Dictionary<string, HTuple> Other { get; set; }
+        public DisposableMap<HTuple> Other { get; set; }
 
         /// <summary>
         ///    缺陷区域 
         /// </summary>
-        public Dictionary<string, HObject> DefectiveReg { get; set; }
+        public HObjectMap DefectiveReg { get; set; }
 
         /// <summary>
         /// 缺陷数值
         /// </summary>
-        public Dictionary<string, HTuple> DefectiveOther { get; set; }
+        public DisposableMap<HTuple> DefectiveOther { get; set; }
 
         public InspectionStepResult()
         {
@@ -87,46 +87,11 @@ namespace VisionTool.Models
                 }
                 DebugObjects.Clear();
             }
-            if (Reg != null)
-            {
-                foreach (var item in Reg)
-                {
-                    item.Value?.Dispose();
-                }
-            }
-            Reg.Clear();
-            if (Other != null)
-            {
-                foreach (var item in Other)
-                {
-                    item.Value?.Dispose();
-                }
-            }
-            Other.Clear();
-            if (Img != null)
-            {
-                foreach (var item in Img)
-                {
-                    item.Value?.Dispose();
-                }
-            }
-            Img.Clear();
-            if (DefectiveReg != null)
-            {
-                foreach (var item in DefectiveReg)
-                {
-                    item.Value?.Dispose();
-                }
-                DefectiveReg.Clear();
-            }
-            if (DefectiveOther != null)
-            {
-                foreach (var item in DefectiveOther)
-                {
-                    item.Value?.Dispose();
-                }
-                DefectiveOther.Clear();
-            }
+            Reg?.Dispose();
+            Other?.Dispose();
+            Img?.Dispose();
+            DefectiveReg?.Dispose();
+            DefectiveOther?.Dispose();
         }
     }
 }

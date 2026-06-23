@@ -222,7 +222,7 @@ namespace VisionTool.Algorithm
 		/// <param name="image">输入图像（多对象通道图）</param>
 		/// <param name="prefix">键名前缀（模板图像/原始图像）</param>
 		/// <returns>标准4通道字典，若输入无效则返回 null</returns>
-		private static Dictionary<string, HObject> BuildImageChannelDictionary(HObject image, string prefix)
+		private static HObjectMap BuildImageChannelDictionary(HObject image, string prefix)
 		{
 			if (image == null || !image.IsInitialized())
 			{
@@ -267,7 +267,7 @@ namespace VisionTool.Algorithm
 				ch4 = ch1.CopyObj(1, -1);
 			}
 
-			var imageDict = new Dictionary<string, HObject>
+			var imageDict = new HObjectMap
 			{
 				{ $"{prefix}红色通道", ch1 },
 				{ $"{prefix}绿色通道", ch2 },
@@ -331,7 +331,7 @@ namespace VisionTool.Algorithm
 			return _context.ModeImage;
 		}
 
-		public Dictionary<string, HObject> GetImage()
+		public HObjectMap GetImage()
 		{
 			return _context.Image;
 		}

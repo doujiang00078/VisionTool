@@ -206,7 +206,7 @@ namespace VisionTool.Services
 			return img?.IsInitialized() == true ? img.CopyObj(1, -1) : null;
 		}
 
-		public Dictionary<string, HObject> GetImage()
+		public HObjectMap GetImage()
 		{
 			return _inspectionProgram.GetImage();
 		}
