@@ -1,4 +1,4 @@
-﻿using HalconDotNet;
+using HalconDotNet;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -231,14 +231,17 @@ namespace VisionTool.Algorithm
 
 			//兼容concat、compose3图像
 			HOperatorSet.CountChannels(image, out var countChannels);
+			HObject channelsImage = null;
 			if (countChannels.I == 3)
 			{
-				HOperatorSet.ImageToChannels(image, out image);
+				channelsImage = image;
+				HOperatorSet.ImageToChannels(channelsImage, out image);
 			}
 			HOperatorSet.CountObj(image, out var count);
 
 			if (count <= 0)
 			{
+				if (channelsImage != null) image.Dispose();
 				return null;
 			}
 
@@ -266,6 +269,9 @@ namespace VisionTool.Algorithm
 				ch3 = ch1.CopyObj(1, -1);
 				ch4 = ch1.CopyObj(1, -1);
 			}
+
+			// 释放 ImageToChannels 创建的中间容器对象
+			if (channelsImage != null) image.Dispose();
 
 			var imageDict = new HObjectMap
 			{

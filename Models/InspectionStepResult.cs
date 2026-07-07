@@ -1,4 +1,4 @@
-﻿using HalconDotNet;
+using HalconDotNet;
 using System;
 using System.Collections.Generic;
 
@@ -64,6 +64,12 @@ namespace VisionTool.Models
         /// </summary>
         public DisposableMap<HTuple> DefectiveOther { get; set; }
 
+        /// <summary>
+        /// 执行过程中产生的临时对象（Operator 的 LocalImages/LocalRegions/LocalTuples），
+        /// 仅用于生命周期管理，不参与数据传递。
+        /// </summary>
+        public List<IDisposable> Temporaries { get; set; } = [];
+
         public InspectionStepResult()
         {
             StepName = string.Empty;
@@ -83,9 +89,17 @@ namespace VisionTool.Models
             {
                 foreach (var obj in DebugObjects)
                 {
-                    obj?.Dispose(); // 释放所有 DebugObjects
+                    obj?.Dispose();
                 }
                 DebugObjects.Clear();
+            }
+            if (Temporaries != null)
+            {
+                foreach (var obj in Temporaries)
+                {
+                    obj?.Dispose();
+                }
+                Temporaries.Clear();
             }
             Reg?.Dispose();
             Other?.Dispose();
