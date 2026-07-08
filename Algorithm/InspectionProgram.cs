@@ -230,58 +230,71 @@ namespace VisionTool.Algorithm
 			}
 
 			//兼容concat、compose3图像
-			HOperatorSet.CountChannels(image, out var countChannels);
-			HObject channelsImage = null;
-			if (countChannels.I == 3)
+			HOperatorSet.CountChannels(image, out HTuple countChannels);
+			try
 			{
-				channelsImage = image;
-				HOperatorSet.ImageToChannels(channelsImage, out image);
+				HObject channelsImage = null;
+				if (countChannels.I == 3)
+				{
+					channelsImage = image;
+					HOperatorSet.ImageToChannels(channelsImage, out image);
+				}
+				HOperatorSet.CountObj(image, out HTuple count);
+				try
+				{
+					if (count <= 0)
+					{
+						if (channelsImage != null) image.Dispose();
+						return null;
+					}
+
+					HObject ch1 = image.SelectObj(1);
+					HObject ch2;
+					HObject ch3;
+					HObject ch4;
+
+					if (count >= 4)
+					{
+						ch2 = image.SelectObj(2);
+						ch3 = image.SelectObj(3);
+						ch4 = image.SelectObj(4);
+					}
+					else if (count == 3)
+					{
+						ch2 = image.SelectObj(2);
+						ch3 = image.SelectObj(3);
+						ch4 = ch1.CopyObj(1, -1);
+					}
+					else
+					{
+						// 1通道：复制三份到其他通道
+						ch2 = ch1.CopyObj(1, -1);
+						ch3 = ch1.CopyObj(1, -1);
+						ch4 = ch1.CopyObj(1, -1);
+					}
+
+					// 释放 ImageToChannels 创建的中间容器对象
+					if (channelsImage != null) image.Dispose();
+
+					var imageDict = new HObjectMap
+					{
+						{ $"{prefix}红色通道", ch1 },
+						{ $"{prefix}绿色通道", ch2 },
+						{ $"{prefix}蓝色通道", ch3 },
+						{ $"{prefix}暗红通道", ch4 }
+					};
+
+					return imageDict;
+				}
+				finally
+				{
+					count.Dispose();
+				}
 			}
-			HOperatorSet.CountObj(image, out var count);
-
-			if (count <= 0)
+			finally
 			{
-				if (channelsImage != null) image.Dispose();
-				return null;
+				countChannels.Dispose();
 			}
-
-			HObject ch1 = image.SelectObj(1);
-			HObject ch2;
-			HObject ch3;
-			HObject ch4;
-
-			if (count >= 4)
-			{
-				ch2 = image.SelectObj(2);
-				ch3 = image.SelectObj(3);
-				ch4 = image.SelectObj(4);
-			}
-			else if (count == 3)
-			{
-				ch2 = image.SelectObj(2);
-				ch3 = image.SelectObj(3);
-				ch4 = ch1.CopyObj(1, -1);
-			}
-			else
-			{
-				// 1通道：复制三份到其他通道
-				ch2 = ch1.CopyObj(1, -1);
-				ch3 = ch1.CopyObj(1, -1);
-				ch4 = ch1.CopyObj(1, -1);
-			}
-
-			// 释放 ImageToChannels 创建的中间容器对象
-			if (channelsImage != null) image.Dispose();
-
-			var imageDict = new HObjectMap
-			{
-				{ $"{prefix}红色通道", ch1 },
-				{ $"{prefix}绿色通道", ch2 },
-				{ $"{prefix}蓝色通道", ch3 },
-				{ $"{prefix}暗红通道", ch4 }
-			};
-
-			return imageDict;
 		}
 
 		/// <summary>

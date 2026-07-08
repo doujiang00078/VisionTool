@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -655,10 +655,6 @@ namespace VisionTool.Algorithm
             _context?.Dispose();
             _context = null;
 
-            foreach (var task in _tasks.Values)
-            {
-                task.GetLatestResult()?.Dispose();
-            }
             _tasks.Clear();
             _downstreamDependencies.Clear();
             _taskNameToIndex.Clear();

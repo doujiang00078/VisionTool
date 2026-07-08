@@ -1,4 +1,4 @@
-﻿using HalconDotNet;
+using HalconDotNet;
 using System;
 using System.Collections.Generic;
 using VisionTool.Enums;
@@ -196,48 +196,7 @@ namespace VisionTool.Models
 
 			foreach (var kvp in StepOutputs)
 			{
-				if (kvp.Value?.DebugObjects != null)
-				{
-					foreach (var obj in kvp.Value.DebugObjects)
-					{
-						obj?.Dispose();
-					}
-				}
-				if (kvp.Value?.Img != null)
-				{
-					foreach (var obj in kvp.Value.Img)
-					{
-						obj.Value?.Dispose();
-					}
-				}
-				if (kvp.Value?.Reg != null)
-				{
-					foreach (var obj in kvp.Value.Reg)
-					{
-						obj.Value?.Dispose();
-					}
-				}
-				if (kvp.Value?.Other != null)
-				{
-					foreach (var obj in kvp.Value.Other)
-					{
-						obj.Value?.Dispose();
-					}
-				}
-				if (kvp.Value?.DefectiveReg != null)
-				{
-					foreach (var obj in kvp.Value.DefectiveReg)
-					{
-						obj.Value?.Dispose();
-					}
-				}
-				if (kvp.Value?.DefectiveOther != null)
-				{
-					foreach (var obj in kvp.Value.DefectiveOther)
-					{
-						obj.Value?.Dispose();
-					}
-				}
+				kvp.Value?.Dispose();
 			}
 			StepOutputs.Clear();
 		}
