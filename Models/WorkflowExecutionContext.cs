@@ -88,7 +88,10 @@ namespace VisionTool.Models
 			get => _image;
 			set
 			{
-				_image.SetAll(value);
+				if (value is null)
+					_image.Clear();
+				else
+					_image.SetAll(value);
 			}
 		}
 

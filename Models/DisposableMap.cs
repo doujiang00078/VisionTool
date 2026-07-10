@@ -80,6 +80,7 @@ namespace VisionTool.Models
 		public void SetAll(IEnumerable<KeyValuePair<string, T>> source)
 		{
 			Clear();
+			if (source is null) return;
 			foreach (var kvp in source)
 				Set(kvp.Key, kvp.Value);
 		}
