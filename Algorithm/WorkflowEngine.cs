@@ -81,6 +81,13 @@ namespace VisionTool.Algorithm
         /// </summary>
         private readonly HashSet<string> _alwaysRunTasks = new();
 
+        /// <summary>
+        /// 当前轮次所有 ProcessTaskAsync 的 Task 引用。
+        /// 用于在 StartWorkflowAsync 返回前等待所有 ThreadPool 任务真正结束，
+        /// 防止下一轮 _context.Image 的 SetAll/Clear 释放 HObject 时仍有旧任务在引用。
+        /// </summary>
+        private ConcurrentBag<Task> _runningTasks = new();
+
         #endregion 字段定义
 
         // 事件定义
@@ -191,6 +198,9 @@ namespace VisionTool.Algorithm
                 throw new InvalidOperationException("工作流存在循环依赖或无起始节点。");
             }
 
+            // 重置任务跟踪集合
+            _runningTasks = new ConcurrentBag<Task>();
+
             if (_tasks.Count == 0)
             {
                 _workflowTcs.TrySetResult(true);
@@ -198,11 +208,13 @@ namespace VisionTool.Algorithm
             else
             {
                 // 步骤5：并行启动所有起始任务
-                // 【性能优化】使用 UnsafeQueueUserWorkItem 减少上下文捕获开销
                 foreach (var task in readyTasks)
                 {
                     var t = task;
-                    ThreadPool.UnsafeQueueUserWorkItem(_ => ProcessTaskAsync(t, cancellationToken, runToTaskName), null);
+                    // 使用 Task.Run 替代 UnsafeQueueUserWorkItem，以跟踪所有 ProcessTaskAsync 的 Task。
+                    // 防止 CTS 超时取消后 TCS 提前完成，导致下一轮 _context.Image.SetAll()
+                    // 释放旧 HObject 时仍有旧任务在 ThreadPool 上引用它们（AccessViolationException）。
+                    _runningTasks.Add(Task.Run(() => ProcessTaskAsync(t, cancellationToken, runToTaskName)));
                 }
             }
 
@@ -217,6 +229,18 @@ namespace VisionTool.Algorithm
             }
             finally
             {
+                // 等待所有 ThreadPool 任务真正结束，再允许下一轮替换 _context.Image
+                var snapshot = _runningTasks;
+                _runningTasks = new ConcurrentBag<Task>();
+                try
+                {
+                    await Task.WhenAll(snapshot).ConfigureAwait(false);
+                }
+                catch
+                {
+                    // ProcessTaskAsync 内部已处理异常，此处兜底
+                }
+
                 time.Stop();
                 NotifyFinishStatus(time.ElapsedMilliseconds);
                 Debug.WriteLine("工作流结束。");
@@ -361,7 +385,7 @@ namespace VisionTool.Algorithm
                 for (int i = 0; i < readyCount; i++)
                 {
                     var t = buffer[i];
-                    ThreadPool.UnsafeQueueUserWorkItem(_ => ProcessTaskAsync(t, token, runToTaskName), null);
+                    _runningTasks.Add(Task.Run(() => ProcessTaskAsync(t, token, runToTaskName)));
                 }
             }
         }
@@ -394,7 +418,7 @@ namespace VisionTool.Algorithm
                         {
                             UpdateTaskState(childTask, WorkflowState.Ready);
                             var t = childTask;
-                            ThreadPool.UnsafeQueueUserWorkItem(_ => ProcessTaskAsync(t, token, runToTaskName), null);
+                            _runningTasks.Add(Task.Run(() => ProcessTaskAsync(t, token, runToTaskName)));
                         }
                         continue;
                     }
