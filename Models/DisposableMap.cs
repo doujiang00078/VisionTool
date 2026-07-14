@@ -36,7 +36,7 @@ namespace VisionTool.Models
 			{
 				if (ReferenceEquals(existing, value))
 					return;
-				existing.Dispose();
+				existing?.Dispose();
 			}
 			_items[key] = value;
 		}
@@ -67,7 +67,7 @@ namespace VisionTool.Models
 		{
 			if (_items.TryGetValue(key, out T existing))
 			{
-				existing.Dispose();
+				existing?.Dispose();
 				_items.Remove(key);
 				return true;
 			}
@@ -100,7 +100,7 @@ namespace VisionTool.Models
 		public void Clear()
 		{
 			foreach (var kvp in _items)
-				kvp.Value.Dispose();
+				kvp.Value?.Dispose();
 			_items.Clear();
 		}
 
