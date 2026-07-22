@@ -1,17 +1,20 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace VisionTool.Models
 {
 	/// <summary>
 	/// 通用可释放字典：管理 <c>Dictionary&lt;string, T&gt;</c> 的 Set/Get/Clear 生命周期，
 	/// 在替换或清空时自动 Dispose 旧值，避免非托管资源泄漏。
+	/// 线程安全：所有读写操作均通过内部锁同步。
 	/// </summary>
 	/// <typeparam name="T">值类型，必须是引用类型且实现 IDisposable</typeparam>
 	public class DisposableMap<T> : IDisposable, ICollection<KeyValuePair<string, T>> where T : class, IDisposable
 	{
 		private readonly Dictionary<string, T> _items = new Dictionary<string, T>();
+		private readonly object _lock = new object();
 
 		// ── ICollection 接口（支持 [] 初始化语法）──
 		bool ICollection<KeyValuePair<string, T>>.IsReadOnly => false;
@@ -23,8 +26,8 @@ namespace VisionTool.Models
 		public void Add(string key, T value) => Set(key, value);
 
 		void ICollection<KeyValuePair<string, T>>.Add(KeyValuePair<string, T> item) => Set(item.Key, item.Value);
-		bool ICollection<KeyValuePair<string, T>>.Contains(KeyValuePair<string, T> item) => _items.TryGetValue(item.Key, out var val) && ReferenceEquals(val, item.Value);
-		void ICollection<KeyValuePair<string, T>>.CopyTo(KeyValuePair<string, T>[] array, int index) => ((ICollection<KeyValuePair<string, T>>)_items).CopyTo(array, index);
+		bool ICollection<KeyValuePair<string, T>>.Contains(KeyValuePair<string, T> item) { lock (_lock) return _items.TryGetValue(item.Key, out var val) && ReferenceEquals(val, item.Value); }
+		void ICollection<KeyValuePair<string, T>>.CopyTo(KeyValuePair<string, T>[] array, int index) { lock (_lock) ((ICollection<KeyValuePair<string, T>>)_items).CopyTo(array, index); }
 		bool ICollection<KeyValuePair<string, T>>.Remove(KeyValuePair<string, T> item) { if (item.Value is null) return false; return Remove(item.Key); }
 
 		/// <summary>
@@ -32,13 +35,16 @@ namespace VisionTool.Models
 		/// </summary>
 		public void Set(string key, T value)
 		{
-			if (_items.TryGetValue(key, out T existing))
+			lock (_lock)
 			{
-				if (ReferenceEquals(existing, value))
-					return;
-				existing?.Dispose();
+				if (_items.TryGetValue(key, out T existing))
+				{
+					if (ReferenceEquals(existing, value))
+						return;
+					existing?.Dispose();
+				}
+				_items[key] = value;
 			}
-			_items[key] = value;
 		}
 
 		/// <summary>
@@ -46,32 +52,38 @@ namespace VisionTool.Models
 		/// </summary>
 		public T Get(string key)
 		{
-			_items.TryGetValue(key, out T value);
-			return value;
+			lock (_lock)
+			{
+				_items.TryGetValue(key, out T value);
+				return value;
+			}
 		}
 
 		/// <summary>
 		/// 判断是否包含指定 key。
 		/// </summary>
-		public bool ContainsKey(string key) => _items.ContainsKey(key);
+		public bool ContainsKey(string key) { lock (_lock) return _items.ContainsKey(key); }
 
 		/// <summary>
 		/// 尝试获取值，找不到时返回 false。
 		/// </summary>
-		public bool TryGetValue(string key, out T value) => _items.TryGetValue(key, out value);
+		public bool TryGetValue(string key, out T value) { lock (_lock) return _items.TryGetValue(key, out value); }
 
 		/// <summary>
 		/// 移除并 Dispose 指定 key 的值，若存在的话。
 		/// </summary>
 		public bool Remove(string key)
 		{
-			if (_items.TryGetValue(key, out T existing))
+			lock (_lock)
 			{
-				existing?.Dispose();
-				_items.Remove(key);
-				return true;
+				if (_items.TryGetValue(key, out T existing))
+				{
+					existing?.Dispose();
+					_items.Remove(key);
+					return true;
+				}
+				return false;
 			}
-			return false;
 		}
 
 		/// <summary>
@@ -99,15 +111,18 @@ namespace VisionTool.Models
 		/// </summary>
 		public void Clear()
 		{
-			foreach (var kvp in _items)
-				kvp.Value?.Dispose();
-			_items.Clear();
+			lock (_lock)
+			{
+				foreach (var kvp in _items)
+					kvp.Value?.Dispose();
+				_items.Clear();
+			}
 		}
 
 		/// <summary>
 		/// 当前存储的元素数量。
 		/// </summary>
-		public int Count => _items.Count;
+		public int Count { get { lock (_lock) return _items.Count; } }
 
 		/// <summary>
 		/// 索引器：get 等价于 Get，set 等价于 Set。
@@ -119,14 +134,14 @@ namespace VisionTool.Models
 		}
 
 		/// <summary>
-		/// 获取所有 key。
+		/// 获取所有 key 的快照。
 		/// </summary>
-		public IEnumerable<string> Keys => _items.Keys;
+		public IEnumerable<string> Keys { get { lock (_lock) return _items.Keys.ToArray(); } }
 
 		/// <summary>
-		/// 获取所有 value。
+		/// 获取所有 value 的快照。
 		/// </summary>
-		public IEnumerable<T> Values => _items.Values;
+		public IEnumerable<T> Values { get { lock (_lock) return _items.Values.ToArray(); } }
 
 		/// <summary>
 		/// 复制一份快照为普通 Dictionary（不转移所有权，不 Dispose）。
@@ -134,10 +149,13 @@ namespace VisionTool.Models
 		/// </summary>
 		public Dictionary<string, T> ToDictionary()
 		{
-			return new Dictionary<string, T>(_items);
+			lock (_lock) return new Dictionary<string, T>(_items);
 		}
 
-		public IEnumerator<KeyValuePair<string, T>> GetEnumerator() => _items.GetEnumerator();
+		public IEnumerator<KeyValuePair<string, T>> GetEnumerator()
+		{
+			lock (_lock) return _items.ToArray().AsEnumerable().GetEnumerator();
+		}
 		IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
 		public void Dispose() => Clear();

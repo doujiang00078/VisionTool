@@ -1,5 +1,6 @@
 using HalconDotNet;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using VisionTool.Enums;
 
@@ -120,7 +121,7 @@ namespace VisionTool.Models
 		/// 键为任务步骤的标识符，值为该步骤的执行结果对象。
 		/// 包含了任务的调试对象、图像、区域等输出数据。
 		/// </remarks>
-		public Dictionary<string, InspectionStepResult> StepOutputs { get; set; }
+		public ConcurrentDictionary<string, InspectionStepResult> StepOutputs { get; set; }
 
 		/// <summary>
 		/// 初始化 WorkflowExecutionContext 类的新实例。
@@ -133,7 +134,7 @@ namespace VisionTool.Models
 		{
 			ModeImage = initialImage;
 			Parameters = new Dictionary<string, object>();
-			StepOutputs = new Dictionary<string, InspectionStepResult>();
+			StepOutputs = new ConcurrentDictionary<string, InspectionStepResult>();
 			Parameters1 = new Dictionary<string, BaseParam>();
 		}
 
