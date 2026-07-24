@@ -198,6 +198,22 @@ namespace VisionTool.Models
 			_modeImage?.Dispose();
 			_modeImage = null;
 
+			// 释放图像集合（存储分拆后的多通道图像）
+			_image?.Dispose();
+
+			// 释放算法参数中的非托管资源
+			if (Parameters1 != null)
+			{
+				foreach (var kvp in Parameters1)
+				{
+					if (kvp.Value is IDisposable disposableParam)
+					{
+						disposableParam.Dispose();
+					}
+				}
+				Parameters1.Clear();
+			}
+
 			foreach (var kvp in StepOutputs)
 			{
 				kvp.Value?.Dispose();
