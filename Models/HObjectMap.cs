@@ -8,6 +8,19 @@ namespace VisionTool.Models
 	/// </summary>
 	public class HObjectMap : DisposableMap<HObject>
 	{
+		public HObjectMap(bool ownsValues = true) : base(ownsValues)
+		{
+		}
+
+		/// <summary>
+		/// 创建不接管 HObject 生命周期的输入视图。
+		/// 算法步骤只能用它传递上游图像/区域，结果必须写入默认构造的拥有型 HObjectMap。
+		/// </summary>
+		public static HObjectMap CreateInputView()
+		{
+			return new HObjectMap(false);
+		}
+
 		/// <summary>
 		/// 获取 HObject，找不到或未初始化时返回 null。
 		/// </summary>

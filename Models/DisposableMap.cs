@@ -15,6 +15,17 @@ namespace VisionTool.Models
 	{
 		private readonly Dictionary<string, T> _items = new Dictionary<string, T>();
 		private readonly object _lock = new object();
+		private readonly bool _ownsValues;
+
+		/// <summary>
+		/// 创建一个对象容器。默认容器拥有并负责释放其中的值；
+		/// <paramref name="ownsValues"/> 为 false 时仅作为上游输出的只读引用视图，
+		/// 不得用于保存本步骤产生的结果。
+		/// </summary>
+		public DisposableMap(bool ownsValues = true)
+		{
+			_ownsValues = ownsValues;
+		}
 
 		// ── ICollection 接口（支持 [] 初始化语法）──
 		bool ICollection<KeyValuePair<string, T>>.IsReadOnly => false;
@@ -41,7 +52,8 @@ namespace VisionTool.Models
 				{
 					if (ReferenceEquals(existing, value))
 						return;
-					existing?.Dispose();
+					if (_ownsValues)
+						existing?.Dispose();
 				}
 				_items[key] = value;
 			}
@@ -78,7 +90,8 @@ namespace VisionTool.Models
 			{
 				if (_items.TryGetValue(key, out T existing))
 				{
-					existing?.Dispose();
+					if (_ownsValues)
+						existing?.Dispose();
 					_items.Remove(key);
 					return true;
 				}
@@ -113,8 +126,11 @@ namespace VisionTool.Models
 		{
 			lock (_lock)
 			{
-				foreach (var kvp in _items)
-					kvp.Value?.Dispose();
+				if (_ownsValues)
+				{
+					foreach (var kvp in _items)
+						kvp.Value?.Dispose();
+				}
 				_items.Clear();
 			}
 		}
