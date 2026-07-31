@@ -23,6 +23,11 @@ namespace VisionTool.Algorithm
 		private WorkflowEngine _workflowEngine;
 
 		/// <summary>
+		/// 内存监控器实例
+		/// </summary>
+		public MemoryMonitor MemoryMonitor { get; private set; }
+
+		/// <summary>
 		/// 工作流执行上下文，包含图像、参数、执行结果等共享数据
 		/// </summary>
 		private WorkflowExecutionContext _context;
@@ -401,6 +406,24 @@ namespace VisionTool.Algorithm
 		{
 			// 通过 WorkflowEngine 更新参数，WorkflowEngine 会将更新同步到 _context.Parameters1。
 			_workflowEngine.SetParameter(name, baseParam);
+		}
+
+		/// <summary>
+		/// 设置内存监控器，追踪每个检测步骤的 Halcon 原生内存增长
+		/// </summary>
+		/// <param name="monitor">内存监控器实例</param>
+		public void SetMemoryMonitor(MemoryMonitor monitor)
+		{
+			MemoryMonitor = monitor;
+			_workflowEngine.MemoryMonitor = monitor;
+		}
+
+		/// <summary>
+		/// 设置串行执行模式：任务按拓扑顺序逐个执行，per-step 内存增量精确归属
+		/// </summary>
+		public void SetSerialExecution(bool serial)
+		{
+			_workflowEngine.ForceSerialExecution = serial;
 		}
 
 		/// <summary>

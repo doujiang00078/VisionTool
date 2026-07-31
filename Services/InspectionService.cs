@@ -1,4 +1,4 @@
-﻿using HalconDotNet;
+using HalconDotNet;
 using System;
 using System.Collections.Generic;
 using System.Threading;
@@ -24,6 +24,11 @@ namespace VisionTool.Services
 		/// 检测流程
 		/// </summary>
 		private InspectionProgram _inspectionProgram;
+
+		/// <summary>
+		/// 内存监控器（可空，未启用时为 null）
+		/// </summary>
+		public MemoryMonitor MemoryMonitor { get; private set; }
 
 		/// <summary>
 		/// 取消令牌
@@ -223,6 +228,33 @@ namespace VisionTool.Services
 		public DefectNameCollection GetDefectAlgorithmName(bool isCustom = false)
 		{
 			return _inspectionProgram.GetDefectAlgorithmName(isCustom);
+		}
+
+		/// <summary>
+		/// 启用内存监控，追踪每个检测步骤的 Halcon 原生内存增长
+		/// </summary>
+		/// <param name="logInterval">每 N 帧输出一次汇总日志（默认 100）</param>
+		/// <param name="alertThresholdBytes">单步增量告警阈值（默认 10MB）</param>
+		public void EnableMemoryMonitor(int logInterval = 100, long alertThresholdBytes = 10 * 1024 * 1024)
+		{
+			MemoryMonitor = new MemoryMonitor(logInterval, alertThresholdBytes);
+			_inspectionProgram.SetMemoryMonitor(MemoryMonitor);
+		}
+
+		/// <summary>
+		/// 获取内存监控统计（返回 null 如果未启用）
+		/// </summary>
+		public System.Collections.Concurrent.ConcurrentDictionary<string, StepMemoryStats> GetMemoryStats()
+		{
+			return MemoryMonitor?.GetAllStats();
+		}
+
+		/// <summary>
+		/// 设置串行执行模式：任务按拓扑顺序逐个执行，per-step 内存增量精确归属
+		/// </summary>
+		public void SetSerialExecution(bool serial)
+		{
+			_inspectionProgram.SetSerialExecution(serial);
 		}
 
 		/// <summary>

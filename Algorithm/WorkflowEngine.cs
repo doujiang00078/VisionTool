@@ -88,6 +88,17 @@ namespace VisionTool.Algorithm
         /// </summary>
         private ConcurrentBag<Task> _runningTasks = new();
 
+        /// <summary>
+        /// 内存监控器（可选），用于追踪每个任务的 Halcon 原生内存增长
+        /// </summary>
+        public MemoryMonitor MemoryMonitor { get; set; }
+
+        /// <summary>
+        /// 强制串行执行模式：所有任务按依赖拓扑顺序逐个执行，不并行。
+        /// 串行模式下 per-step 内存增量可精确归属，但执行速度较慢。
+        /// </summary>
+        public bool ForceSerialExecution { get; set; }
+
         #endregion 字段定义
 
         // 事件定义
@@ -157,6 +168,9 @@ namespace VisionTool.Algorithm
         {
             var time = Stopwatch.StartNew();
 
+            // 内存监控：记录轮次开始
+            MemoryMonitor?.OnWorkflowStart();
+
             // 步骤1：重置所有任务状态，初始化入度数组
             ResetWorkflowState();
 
@@ -205,6 +219,12 @@ namespace VisionTool.Algorithm
             {
                 _workflowTcs.TrySetResult(true);
             }
+            else if (ForceSerialExecution)
+            {
+                // 串行模式：按拓扑顺序逐个执行，per-step 内存增量精确归属
+                await RunSerialAsync(readyTasks, cancellationToken, runToTaskName);
+                _workflowTcs.TrySetResult(true);
+            }
             else
             {
                 // 步骤5：并行启动所有起始任务
@@ -229,6 +249,9 @@ namespace VisionTool.Algorithm
             }
             finally
             {
+                // 内存监控：记录轮次结束
+                MemoryMonitor?.OnWorkflowFinish();
+
                 // 等待所有 ThreadPool 任务真正结束，再允许下一轮替换 _context.Image
                 var snapshot = _runningTasks;
                 _runningTasks = new ConcurrentBag<Task>();
@@ -276,6 +299,10 @@ namespace VisionTool.Algorithm
 
                 Debug.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] 任务 {task.Name} 开始执行 (线程:{Thread.CurrentThread.ManagedThreadId})");
 
+                // 内存监控：任务执行前采样 GC 堆（托管内存，不受并行任务干扰）
+                long gcBefore = 0;
+                if (MemoryMonitor != null) gcBefore = GC.GetTotalMemory(false);
+
                 // 执行任务，捕获各种异常
                 WorkflowState newState;
                 try
@@ -295,6 +322,19 @@ namespace VisionTool.Algorithm
                 // 计算任务执行耗时
                 var elapsed = (Stopwatch.GetTimestamp() - taskStartTime) * 1000.0 / Stopwatch.Frequency;
                 Debug.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] 任务 {task.Name} 完成，耗时: {elapsed:F1}ms (线程:{Thread.CurrentThread.ManagedThreadId})");
+
+                // 内存监控：任务执行后采样并记录（使用 GC 堆增量，WorkingSet 在并行场景下不可靠）
+                if (MemoryMonitor != null)
+                {
+                    var gcAfter = GC.GetTotalMemory(false);
+                    MemoryMonitor.RecordStep(new StepMemoryRecord
+                    {
+                        TaskName = task.Name,
+                        Before = new MemorySnapshot { GcHeapBytes = gcBefore },
+                        After = new MemorySnapshot { GcHeapBytes = gcAfter, PrivateBytes = MemoryMonitor.TakeSnapshot().PrivateBytes },
+                        ElapsedMs = elapsed
+                    });
+                }
 
                 var result = task.GetLatestResult();
 
@@ -340,6 +380,127 @@ namespace VisionTool.Algorithm
                 if (Interlocked.Decrement(ref _remainingTaskCount) == 0)
                 {
                     _workflowTcs.TrySetResult(true);
+                }
+            }
+        }
+
+        /// <summary>
+        /// 串行执行模式：按拓扑顺序逐个执行任务。
+        /// 每个任务独占执行，内存增量可精确归属到单个步骤。
+        /// </summary>
+        private async Task RunSerialAsync(List<IWorkflowTask> readyTasks, CancellationToken token, string runToTaskName)
+        {
+            // 用队列维护就绪任务，每次取一个执行
+            var readyQueue = new Queue<IWorkflowTask>(readyTasks);
+
+            while (readyQueue.Count > 0)
+            {
+                if (token.IsCancellationRequested || IsCancelled) break;
+
+                var task = readyQueue.Dequeue();
+                UpdateTaskState(task, WorkflowState.Running);
+                EnqueueStatusNotification(task.Name, WorkflowState.Running);
+
+                var taskStartTime = Stopwatch.GetTimestamp();
+
+                // 内存监控：任务执行前采样
+                long gcBefore = 0;
+                if (MemoryMonitor != null) gcBefore = GC.GetTotalMemory(false);
+
+                // 执行任务
+                WorkflowState newState;
+                try
+                {
+                    newState = await task.ExecuteAsync(_context, token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    newState = WorkflowState.Cancelled;
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"串行任务 {task.Name} 异常: {ex.Message}");
+                    newState = WorkflowState.Failed;
+                }
+
+                var elapsed = (Stopwatch.GetTimestamp() - taskStartTime) * 1000.0 / Stopwatch.Frequency;
+                Debug.WriteLine($"[串行] {task.Name} 完成，耗时: {elapsed:F1}ms");
+
+                // 内存监控：记录步骤增量
+                if (MemoryMonitor != null)
+                {
+                    var gcAfter = GC.GetTotalMemory(false);
+                    MemoryMonitor.RecordStep(new StepMemoryRecord
+                    {
+                        TaskName = task.Name,
+                        Before = new MemorySnapshot { GcHeapBytes = gcBefore },
+                        After = new MemorySnapshot { GcHeapBytes = gcAfter, PrivateBytes = Process.GetCurrentProcess().PrivateMemorySize64 },
+                        ElapsedMs = elapsed
+                    });
+                }
+
+                // 存储结果
+                var result = task.GetLatestResult();
+                if (_context.StepOutputs.TryGetValue(task.Name, out var oldResult)) oldResult?.Dispose();
+                _context.StepOutputs[task.Name] = result;
+
+                EnqueueStatusNotification(task.Name, newState, result);
+                Interlocked.Decrement(ref _remainingTaskCount);
+
+                if (newState == WorkflowState.Completed)
+                {
+                    // 如果是目标任务，直接结束
+                    if (runToTaskName != null && task.Name == runToTaskName)
+                        return;
+
+                    // 将新就绪的下游任务加入队列
+                    if (_downstreamDependencies.TryGetValue(task.Name, out var children))
+                    {
+                        foreach (var childName in children)
+                        {
+                            if (_taskNameToIndex.TryGetValue(childName, out var idx))
+                            {
+                                if (Interlocked.Decrement(ref _currentInDegrees[idx]) == 0
+                                    && _tasks.TryGetValue(childName, out var childTask))
+                                {
+                                    UpdateTaskState(childTask, WorkflowState.Ready);
+                                    readyQueue.Enqueue(childTask);
+                                }
+                            }
+                        }
+                    }
+                }
+                else
+                {
+                    // 任务失败/取消：跳过下游（alwaysRun 的任务仍入队）
+                    if (_downstreamDependencies.TryGetValue(task.Name, out var children))
+                    {
+                        var stack = new Stack<string>(children);
+                        while (stack.Count > 0)
+                        {
+                            var childName = stack.Pop();
+                            if (!_tasks.TryGetValue(childName, out var childTask)) continue;
+
+                            if (_alwaysRunTasks.Contains(childName))
+                            {
+                                if (_taskNameToIndex.TryGetValue(childName, out var idx)
+                                    && Interlocked.Decrement(ref _currentInDegrees[idx]) == 0)
+                                {
+                                    UpdateTaskState(childTask, WorkflowState.Ready);
+                                    readyQueue.Enqueue(childTask);
+                                }
+                                continue;
+                            }
+
+                            if (childTask.State != WorkflowState.Pending && childTask.State != WorkflowState.Ready) continue;
+                            UpdateTaskState(childTask, WorkflowState.Skipped);
+                            EnqueueStatusNotification(childTask.Name, WorkflowState.Skipped, null, "上游失败已跳过");
+                            Interlocked.Decrement(ref _remainingTaskCount);
+
+                            if (_downstreamDependencies.TryGetValue(childName, out var grandchildren))
+                                foreach (var name in grandchildren) stack.Push(name);
+                        }
+                    }
                 }
             }
         }
