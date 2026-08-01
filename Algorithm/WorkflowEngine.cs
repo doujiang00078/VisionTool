@@ -252,9 +252,6 @@ namespace VisionTool.Algorithm
             }
             finally
             {
-                // 内存监控：记录轮次结束
-                frameMemoryMonitor?.OnWorkflowFinish();
-
                 // 等待所有 ThreadPool 任务真正结束，再允许下一轮替换 _context.Image
                 var snapshot = _runningTasks;
                 _runningTasks = new ConcurrentBag<Task>();
@@ -266,6 +263,9 @@ namespace VisionTool.Algorithm
                 {
                     // ProcessTaskAsync 内部已处理异常，此处兜底
                 }
+
+                // 所有本帧任务结束后再采样，避免将尚未退出的并行任务归入下一帧。
+                frameMemoryMonitor?.OnWorkflowFinish();
 
                 time.Stop();
                 NotifyFinishStatus(time.ElapsedMilliseconds);
@@ -410,7 +410,12 @@ namespace VisionTool.Algorithm
                 var elapsed = (Stopwatch.GetTimestamp() - taskStartTime) * 1000.0 / Stopwatch.Frequency;
                 Debug.WriteLine($"[串行] {task.Name} 完成，耗时: {elapsed:F1}ms");
 
-                // 串行模式下当前任务独占执行，可记录进程非 GC 私有内存变化。
+                // 存储结果
+                var result = task.GetLatestResult();
+                if (_context.StepOutputs.TryGetValue(task.Name, out var oldResult)) oldResult?.Dispose();
+                _context.StepOutputs[task.Name] = result;
+
+                // 串行模式下当前任务独占执行。旧结果释放后再采样，记录本步骤的净保留变化。
                 if (memoryMonitor != null)
                 {
                     memoryMonitor.RecordStep(new StepMemoryRecord
@@ -421,11 +426,6 @@ namespace VisionTool.Algorithm
                         ElapsedMs = elapsed
                     });
                 }
-
-                // 存储结果
-                var result = task.GetLatestResult();
-                if (_context.StepOutputs.TryGetValue(task.Name, out var oldResult)) oldResult?.Dispose();
-                _context.StepOutputs[task.Name] = result;
 
                 EnqueueStatusNotification(task.Name, newState, result);
                 Interlocked.Decrement(ref _remainingTaskCount);
