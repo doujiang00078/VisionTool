@@ -89,7 +89,7 @@ namespace VisionTool.Algorithm
         private ConcurrentBag<Task> _runningTasks = new();
 
         /// <summary>
-        /// 内存监控器（可选），用于追踪每个任务的 Halcon 原生内存增长
+        /// 内存监控器（可选），用于串行模式下追踪每个任务的非 GC 私有内存变化。
         /// </summary>
         public MemoryMonitor MemoryMonitor { get; set; }
 
@@ -168,8 +168,11 @@ namespace VisionTool.Algorithm
         {
             var time = Stopwatch.StartNew();
 
-            // 内存监控：记录轮次开始
-            MemoryMonitor?.OnWorkflowStart();
+            // 只在本帧开始时已处于串行模式时保留监控器快照。
+            // 这样运行中切换诊断开关不会让并行任务产生不可信的步骤归因。
+            var serialExecution = ForceSerialExecution;
+            var frameMemoryMonitor = serialExecution ? MemoryMonitor : null;
+            frameMemoryMonitor?.OnWorkflowStart();
 
             // 步骤1：重置所有任务状态，初始化入度数组
             ResetWorkflowState();
@@ -219,10 +222,10 @@ namespace VisionTool.Algorithm
             {
                 _workflowTcs.TrySetResult(true);
             }
-            else if (ForceSerialExecution)
+            else if (serialExecution)
             {
                 // 串行模式：按拓扑顺序逐个执行，per-step 内存增量精确归属
-                await RunSerialAsync(readyTasks, cancellationToken, runToTaskName);
+                await RunSerialAsync(readyTasks, cancellationToken, runToTaskName, frameMemoryMonitor);
                 _workflowTcs.TrySetResult(true);
             }
             else
@@ -250,7 +253,7 @@ namespace VisionTool.Algorithm
             finally
             {
                 // 内存监控：记录轮次结束
-                MemoryMonitor?.OnWorkflowFinish();
+                frameMemoryMonitor?.OnWorkflowFinish();
 
                 // 等待所有 ThreadPool 任务真正结束，再允许下一轮替换 _context.Image
                 var snapshot = _runningTasks;
@@ -299,10 +302,6 @@ namespace VisionTool.Algorithm
 
                 Debug.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] 任务 {task.Name} 开始执行 (线程:{Thread.CurrentThread.ManagedThreadId})");
 
-                // 内存监控：任务执行前采样 GC 堆（托管内存，不受并行任务干扰）
-                long gcBefore = 0;
-                if (MemoryMonitor != null) gcBefore = GC.GetTotalMemory(false);
-
                 // 执行任务，捕获各种异常
                 WorkflowState newState;
                 try
@@ -322,19 +321,6 @@ namespace VisionTool.Algorithm
                 // 计算任务执行耗时
                 var elapsed = (Stopwatch.GetTimestamp() - taskStartTime) * 1000.0 / Stopwatch.Frequency;
                 Debug.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] 任务 {task.Name} 完成，耗时: {elapsed:F1}ms (线程:{Thread.CurrentThread.ManagedThreadId})");
-
-                // 内存监控：任务执行后采样并记录（使用 GC 堆增量，WorkingSet 在并行场景下不可靠）
-                if (MemoryMonitor != null)
-                {
-                    var gcAfter = GC.GetTotalMemory(false);
-                    MemoryMonitor.RecordStep(new StepMemoryRecord
-                    {
-                        TaskName = task.Name,
-                        Before = new MemorySnapshot { GcHeapBytes = gcBefore },
-                        After = new MemorySnapshot { GcHeapBytes = gcAfter, PrivateBytes = MemoryMonitor.TakeSnapshot().PrivateBytes },
-                        ElapsedMs = elapsed
-                    });
-                }
 
                 var result = task.GetLatestResult();
 
@@ -388,7 +374,7 @@ namespace VisionTool.Algorithm
         /// 串行执行模式：按拓扑顺序逐个执行任务。
         /// 每个任务独占执行，内存增量可精确归属到单个步骤。
         /// </summary>
-        private async Task RunSerialAsync(List<IWorkflowTask> readyTasks, CancellationToken token, string runToTaskName)
+        private async Task RunSerialAsync(List<IWorkflowTask> readyTasks, CancellationToken token, string runToTaskName, MemoryMonitor memoryMonitor)
         {
             // 用队列维护就绪任务，每次取一个执行
             var readyQueue = new Queue<IWorkflowTask>(readyTasks);
@@ -403,9 +389,7 @@ namespace VisionTool.Algorithm
 
                 var taskStartTime = Stopwatch.GetTimestamp();
 
-                // 内存监控：任务执行前采样
-                long gcBefore = 0;
-                if (MemoryMonitor != null) gcBefore = GC.GetTotalMemory(false);
+                var memoryBefore = memoryMonitor != null ? MemoryMonitor.TakeSnapshot() : default;
 
                 // 执行任务
                 WorkflowState newState;
@@ -426,15 +410,14 @@ namespace VisionTool.Algorithm
                 var elapsed = (Stopwatch.GetTimestamp() - taskStartTime) * 1000.0 / Stopwatch.Frequency;
                 Debug.WriteLine($"[串行] {task.Name} 完成，耗时: {elapsed:F1}ms");
 
-                // 内存监控：记录步骤增量
-                if (MemoryMonitor != null)
+                // 串行模式下当前任务独占执行，可记录进程非 GC 私有内存变化。
+                if (memoryMonitor != null)
                 {
-                    var gcAfter = GC.GetTotalMemory(false);
-                    MemoryMonitor.RecordStep(new StepMemoryRecord
+                    memoryMonitor.RecordStep(new StepMemoryRecord
                     {
                         TaskName = task.Name,
-                        Before = new MemorySnapshot { GcHeapBytes = gcBefore },
-                        After = new MemorySnapshot { GcHeapBytes = gcAfter, PrivateBytes = Process.GetCurrentProcess().PrivateMemorySize64 },
+                        Before = memoryBefore,
+                        After = MemoryMonitor.TakeSnapshot(),
                         ElapsedMs = elapsed
                     });
                 }

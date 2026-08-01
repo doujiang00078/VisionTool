@@ -7,7 +7,7 @@ using VisionTool.Models;
 namespace VisionTool.Algorithm
 {
 	/// <summary>
-	/// 工作流内存监控器 — 在 WorkflowEngine 的每个任务前后采样进程内存
+	/// 工作流内存监控器 — 仅在串行工作流中记录各任务的进程非 GC 私有内存变化。
 	/// </summary>
 	public class MemoryMonitor
 	{
@@ -42,19 +42,18 @@ namespace VisionTool.Algorithm
 		public static MemorySnapshot TakeSnapshot() => MemorySnapshot.Take();
 
 		/// <summary>
-		/// 记录一个步骤的内存增量（使用 GC 堆增量）
+		/// 记录一个步骤的内存增量。调用方必须保证任务独占执行。
 		/// </summary>
 		public void RecordStep(StepMemoryRecord record)
 		{
 			var stats = _stats.GetOrAdd(record.TaskName, name => new StepMemoryStats { TaskName = name });
-			stats.Record(record.DeltaGcBytes);
-			stats.LastGcHeapBytes = record.After.GcHeapBytes;
+			stats.Record(record.DeltaNonGcPrivateBytes, record.After);
 
 			OnStepRecorded?.Invoke(record.TaskName, record);
 
-			if (record.DeltaGcBytes > _alertThresholdBytes)
+			if (record.DeltaNonGcPrivateBytes > _alertThresholdBytes)
 			{
-				OnMemoryWarning?.Invoke(record.TaskName, record.DeltaGcBytes);
+				OnMemoryWarning?.Invoke(record.TaskName, record.DeltaNonGcPrivateBytes);
 			}
 		}
 
@@ -87,7 +86,7 @@ namespace VisionTool.Algorithm
 
 		private void LogSummary(MemorySnapshot current, long frameDelta)
 		{
-			Debug.WriteLine($"[内存监控] === 第 {_frameCount} 帧 === 非托管: {FormatBytes(current.UnmanagedBytes)}, GC堆: {FormatBytes(current.GcHeapBytes)}, 帧净增: {FormatBytes(frameDelta)}");
+			Debug.WriteLine($"[内存监控] === 第 {_frameCount} 帧 === 非GC私有内存估算: {FormatBytes(current.UnmanagedBytes)}, GC堆: {FormatBytes(current.GcHeapBytes)}, 帧净增: {FormatBytes(frameDelta)}");
 
 			var ordered = _stats.Values.OrderByDescending(s => Math.Abs(s.AverageRecentDelta)).ToList();
 			foreach (var s in ordered)

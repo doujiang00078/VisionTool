@@ -27,13 +27,14 @@ namespace VisionTool.Models
 		public long Timestamp;
 
 		/// <summary>
-		/// Halcon 非托管内存估算 = PrivateBytes - GcHeapBytes
+		/// 非 GC 私有内存估算 = PrivateBytes - GcHeapBytes。
+		/// 包含 HALCON、相机 SDK、线程栈和其他本机分配，不能单独等同于 HALCON 内存。
 		/// </summary>
 		public long UnmanagedBytes => PrivateBytes - GcHeapBytes;
 
 		public static MemorySnapshot Take()
 		{
-			var process = Process.GetCurrentProcess();
+			using var process = Process.GetCurrentProcess();
 			return new MemorySnapshot
 			{
 				PrivateBytes = process.PrivateMemorySize64,
@@ -54,6 +55,7 @@ namespace VisionTool.Models
 		public double ElapsedMs;
 
 		public long DeltaGcBytes => After.GcHeapBytes - Before.GcHeapBytes;
+		public long DeltaNonGcPrivateBytes => After.UnmanagedBytes - Before.UnmanagedBytes;
 	}
 
 	/// <summary>
@@ -67,7 +69,7 @@ namespace VisionTool.Models
 	}
 
 	/// <summary>
-	/// 每步骤的滑动窗口统计（注意：GC 堆增量在并行场景下仅为参考，不代表精确归属）
+	/// 每步骤的滑动窗口统计（仅由串行工作流写入）。
 	/// </summary>
 	public class StepMemoryStats
 	{
@@ -75,17 +77,22 @@ namespace VisionTool.Models
 		public long MaxSingleDeltaBytes { get; private set; }
 		public int SampleCount { get; private set; }
 		public long LastGcHeapBytes { get; set; }
+		public long LastPrivateBytes { get; private set; }
+		public long LastNonGcPrivateBytes { get; private set; }
 
 		private readonly object _lock = new();
 		private readonly Queue<long> _recentDeltas = new();
 		public const int WindowSize = 50;
 
-		public void Record(long delta)
+		public void Record(long delta, MemorySnapshot after)
 		{
 			lock (_lock)
 			{
 				SampleCount++;
 				if (delta > MaxSingleDeltaBytes) MaxSingleDeltaBytes = delta;
+				LastPrivateBytes = after.PrivateBytes;
+				LastGcHeapBytes = after.GcHeapBytes;
+				LastNonGcPrivateBytes = after.UnmanagedBytes;
 				_recentDeltas.Enqueue(delta);
 				while (_recentDeltas.Count > WindowSize) _recentDeltas.Dequeue();
 			}
@@ -124,6 +131,9 @@ namespace VisionTool.Models
 			{
 				MaxSingleDeltaBytes = 0;
 				SampleCount = 0;
+				LastPrivateBytes = 0;
+				LastGcHeapBytes = 0;
+				LastNonGcPrivateBytes = 0;
 				_recentDeltas.Clear();
 			}
 		}

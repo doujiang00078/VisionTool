@@ -28,6 +28,11 @@ namespace VisionTool.Algorithm
 		public MemoryMonitor MemoryMonitor { get; private set; }
 
 		/// <summary>
+		/// 当前工作流是否按串行模式执行。
+		/// </summary>
+		public bool IsSerialExecution => _workflowEngine?.ForceSerialExecution == true;
+
+		/// <summary>
 		/// 工作流执行上下文，包含图像、参数、执行结果等共享数据
 		/// </summary>
 		private WorkflowExecutionContext _context;
@@ -409,7 +414,7 @@ namespace VisionTool.Algorithm
 		}
 
 		/// <summary>
-		/// 设置内存监控器，追踪每个检测步骤的 Halcon 原生内存增长
+		/// 设置内存监控器。传入 null 可停止监控。
 		/// </summary>
 		/// <param name="monitor">内存监控器实例</param>
 		public void SetMemoryMonitor(MemoryMonitor monitor)
