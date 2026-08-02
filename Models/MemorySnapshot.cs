@@ -74,7 +74,6 @@ namespace VisionTool.Models
 	public class StepMemoryStats
 	{
 		public string TaskName { get; set; }
-		public long MaxSingleDeltaBytes { get; private set; }
 		public int SampleCount { get; private set; }
 		public long LastGcHeapBytes { get; set; }
 		public long LastPrivateBytes { get; private set; }
@@ -89,7 +88,6 @@ namespace VisionTool.Models
 			lock (_lock)
 			{
 				SampleCount++;
-				if (delta > MaxSingleDeltaBytes) MaxSingleDeltaBytes = delta;
 				LastPrivateBytes = after.PrivateBytes;
 				LastGcHeapBytes = after.GcHeapBytes;
 				LastNonGcPrivateBytes = after.UnmanagedBytes;
@@ -129,7 +127,6 @@ namespace VisionTool.Models
 		{
 			lock (_lock)
 			{
-				MaxSingleDeltaBytes = 0;
 				SampleCount = 0;
 				LastPrivateBytes = 0;
 				LastGcHeapBytes = 0;

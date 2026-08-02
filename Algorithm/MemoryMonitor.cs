@@ -12,11 +12,13 @@ namespace VisionTool.Algorithm
 	public class MemoryMonitor
 	{
 		private readonly ConcurrentDictionary<string, StepMemoryStats> _stats = new();
+		private readonly object _sessionLock = new();
 		private long _frameStartPrivateBytes;
 		private long _frameStartUnmanagedBytes;
 		private int _frameCount;
 		private readonly int _logInterval;
 		private readonly long _alertThresholdBytes;
+		private MemorySnapshot _sessionStartSnapshot;
 
 		/// <summary>
 		/// 单步执行完成时触发
@@ -37,6 +39,7 @@ namespace VisionTool.Algorithm
 		{
 			_logInterval = logInterval;
 			_alertThresholdBytes = alertThresholdBytes;
+			CaptureSessionStart();
 		}
 
 		public static MemorySnapshot TakeSnapshot() => MemorySnapshot.Take();
@@ -86,13 +89,15 @@ namespace VisionTool.Algorithm
 
 		private void LogSummary(MemorySnapshot current, long frameDelta)
 		{
-			Debug.WriteLine($"[内存监控] === 第 {_frameCount} 帧 === 非GC私有内存估算: {FormatBytes(current.UnmanagedBytes)}, GC堆: {FormatBytes(current.GcHeapBytes)}, 帧净增: {FormatBytes(frameDelta)}");
+			var sessionStart = SessionStartSnapshot;
+			var totalGrowth = current.UnmanagedBytes - sessionStart.UnmanagedBytes;
+			Debug.WriteLine($"[内存监控] === 第 {_frameCount} 帧 === 非GC私有内存开始值: {FormatBytes(sessionStart.UnmanagedBytes)}, 当前值: {FormatBytes(current.UnmanagedBytes)}, 累计净增长: {FormatSignedBytes(totalGrowth)}, GC堆: {FormatBytes(current.GcHeapBytes)}, 帧净增: {FormatSignedBytes(frameDelta)}");
 
 			var ordered = _stats.Values.OrderByDescending(s => Math.Abs(s.AverageRecentDelta)).ToList();
 			foreach (var s in ordered)
 			{
 				var tag = s.IsGrowing ? " ⚠️ 持续增长" : "";
-				Debug.WriteLine($"[内存监控]   {s.TaskName,-15} avg {FormatBytes((long)s.AverageRecentDelta)}, max {FormatBytes(s.MaxSingleDeltaBytes)}, count {s.SampleCount}{tag}");
+				Debug.WriteLine($"[内存监控]   {s.TaskName,-15} 近50帧平均 {FormatBytes((long)s.AverageRecentDelta)}, count {s.SampleCount}{tag}");
 			}
 		}
 
@@ -105,9 +110,27 @@ namespace VisionTool.Algorithm
 			_frameStartUnmanagedBytes = 0;
 			foreach (var stats in _stats.Values) stats.Reset();
 			_stats.Clear();
+			CaptureSessionStart();
 		}
 
 		public int FrameCount => _frameCount;
+
+		/// <summary>
+		/// 本次诊断会话开始时的进程内存快照。创建监控器和重置统计时均会重新采样。
+		/// </summary>
+		public MemorySnapshot SessionStartSnapshot
+		{
+			get
+			{
+				lock (_sessionLock) return _sessionStartSnapshot;
+			}
+		}
+
+		private void CaptureSessionStart()
+		{
+			var snapshot = TakeSnapshot();
+			lock (_sessionLock) _sessionStartSnapshot = snapshot;
+		}
 
 		public static string FormatBytes(long bytes)
 		{
@@ -117,5 +140,8 @@ namespace VisionTool.Algorithm
 			if (bytes < 1024L * 1024 * 1024) return $"{bytes / (1024.0 * 1024):F1}MB";
 			return $"{bytes / (1024.0 * 1024 * 1024):F2}GB";
 		}
+
+		private static string FormatSignedBytes(long bytes)
+			=> bytes < 0 ? $"-{FormatBytes(-bytes)}" : FormatBytes(bytes);
 	}
 }
