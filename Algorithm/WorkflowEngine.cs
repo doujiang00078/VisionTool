@@ -89,6 +89,11 @@ namespace VisionTool.Algorithm
         private ConcurrentBag<Task> _runningTasks = new();
 
         /// <summary>
+        /// ScheduleDownstream 复用的就绪任务缓冲区，避免每帧分配数组
+        /// </summary>
+        private IWorkflowTask[] _readyBuffer;
+
+        /// <summary>
         /// 内存监控器（可选），用于串行模式下追踪每个任务的非 GC 私有内存变化。
         /// </summary>
         public MemoryMonitor MemoryMonitor { get; set; }
@@ -501,8 +506,10 @@ namespace VisionTool.Algorithm
             if (IsCancelled || token.IsCancellationRequested) return;
             if (!_downstreamDependencies.TryGetValue(parentTaskName, out var children)) return;
 
-            // 【性能优化】预分配固定大小数组，避免List动态扩容开销
-            var buffer = new IWorkflowTask[children.Count];
+            // 【性能优化】复用类级缓冲区，避免每帧分配数组
+            if (_readyBuffer == null || _readyBuffer.Length < children.Count)
+                _readyBuffer = new IWorkflowTask[children.Count];
+            var buffer = _readyBuffer;
             int readyCount = 0;
 
             // 遍历所有子任务，检查入度
@@ -692,22 +699,24 @@ namespace VisionTool.Algorithm
         {
             //_context.StepOutputs.Clear();
 
-            // 重新初始化入度数组
+            // 复用入度数组而非每帧分配
             int count = _tasks.Count;
-            _currentInDegrees = new int[count];
+            if (_currentInDegrees == null || _currentInDegrees.Length != count)
+                _currentInDegrees = new int[count];
+            else
+                Array.Clear(_currentInDegrees, 0, count);
 
             foreach (var task in _tasks.Values)
             {
                 UpdateTaskState(task, WorkflowState.Pending);
-                // 计算任务的依赖数量（即入度）
-                int dependencyCount = task.Dependencies?.Count() ?? 0;
+                // 计算任务的依赖数量（即入度），优先用 Count 属性避免 LINQ 分配
+                int dependencyCount = (task.Dependencies as IList<string>)?.Count
+                    ?? task.Dependencies?.Count() ?? 0;
 
                 if (_taskNameToIndex.TryGetValue(task.Name, out var idx))
                 {
                     _currentInDegrees[idx] = dependencyCount;
                 }
-
-                EnqueueStatusNotification(task.Name, WorkflowState.Pending);
             }
         }
 
