@@ -94,6 +94,19 @@ namespace VisionTool.Algorithm
         private IWorkflowTask[] _readyBuffer;
 
         /// <summary>
+        /// 当前帧已完成步骤快照。
+        /// 只有 task completed 后才写入；下游任务从 snapshot 读取依赖结果，
+        /// 避免 _context.StepOutputs 被新帧替换时影响仍在并发读取的旧任务。
+        /// </summary>
+        private volatile ConcurrentDictionary<string, InspectionStepResult> _snapshotOutputs = new();
+
+        /// <summary>
+        /// 上一帧的 StepOutputs，在下一帧 ResetWorkflowState 时统一释放。
+        /// 解决 UI/异步消费者仍持有旧 result 引用时，ProcessTaskAsync 提前 Dispose 导致的 use-after-free。
+        /// </summary>
+        private List<InspectionStepResult> _previousOutputs = new();
+
+        /// <summary>
         /// 内存监控器（可选），用于串行模式下追踪每个任务的非 GC 私有内存变化。
         /// </summary>
         public MemoryMonitor MemoryMonitor { get; set; }
@@ -329,13 +342,20 @@ namespace VisionTool.Algorithm
 
                 var result = task.GetLatestResult();
 
-                // 更新上下文，释放旧结果资源
+                // 先写入当前帧快照，下游任务可安全读取已完成依赖。
+                if (result != null)
+                {
+                    _snapshotOutputs[task.Name] = result;
+                }
+
+                // 更新上下文，暂存旧结果（由下一帧 ResetWorkflowState 统一释放，
+                // 避免 UI/异步消费者仍持有引用时被提前 Dispose）
                 var context = _context;
                 if (context != null)
                 {
-                    if (context.StepOutputs.TryGetValue(task.Name, out var oldResult))
+                    if (context.StepOutputs.TryGetValue(task.Name, out var oldResult) && oldResult != null)
                     {
-                        oldResult?.Dispose();
+                        _previousOutputs.Add(oldResult);
                     }
                     context.StepOutputs[task.Name] = result;
                 }
@@ -417,7 +437,12 @@ namespace VisionTool.Algorithm
 
                 // 存储结果
                 var result = task.GetLatestResult();
-                if (_context.StepOutputs.TryGetValue(task.Name, out var oldResult)) oldResult?.Dispose();
+                if (result != null)
+                {
+                    _snapshotOutputs[task.Name] = result;
+                }
+                if (_context.StepOutputs.TryGetValue(task.Name, out var oldResult) && oldResult != null)
+                    _previousOutputs.Add(oldResult);
                 _context.StepOutputs[task.Name] = result;
 
                 // 串行模式下当前任务独占执行。旧结果释放后再采样，记录本步骤的净保留变化。
@@ -699,6 +724,17 @@ namespace VisionTool.Algorithm
         {
             //_context.StepOutputs.Clear();
 
+            // 每帧重建 snapshot，避免跨帧残留
+            _snapshotOutputs = new ConcurrentDictionary<string, InspectionStepResult>();
+
+            // 释放上一帧的旧结果（此时 UI 已完成渲染，可以安全释放）
+            if (_previousOutputs.Count > 0)
+            {
+                foreach (var old in _previousOutputs)
+                    old?.Dispose();
+                _previousOutputs.Clear();
+            }
+
             // 复用入度数组而非每帧分配
             int count = _tasks.Count;
             if (_currentInDegrees == null || _currentInDegrees.Length != count)
@@ -753,7 +789,12 @@ namespace VisionTool.Algorithm
             {
                 var newState = await task.ExecuteAsync(_context, cancellationToken).ConfigureAwait(false);
                 var result = task.GetLatestResult();
-                if (_context.StepOutputs.TryGetValue(task.Name, out var oldResult)) oldResult?.Dispose();
+                if (result != null)
+                {
+                    _snapshotOutputs[task.Name] = result;
+                }
+                if (_context.StepOutputs.TryGetValue(task.Name, out var oldResult) && oldResult != null)
+                    _previousOutputs.Add(oldResult);
                 _context.StepOutputs[task.Name] = result;
                 EnqueueStatusNotification(task.Name, newState, result);
             }
@@ -827,6 +868,19 @@ namespace VisionTool.Algorithm
 
             // 先刷新通知队列，确保所有 HObject 资源被正确释放
             FlushStatusNotifications();
+
+            // 清理快照引用，避免引用上下文已释放对象
+            _snapshotOutputs?.Clear();
+            _snapshotOutputs = null;
+
+            // 释放暂存的旧结果
+            if (_previousOutputs != null)
+            {
+                foreach (var old in _previousOutputs)
+                    old?.Dispose();
+                _previousOutputs.Clear();
+                _previousOutputs = null;
+            }
 
             // 释放上下文（内部会释放 StepOutputs 中所有 InspectionStepResult 的 HObject 资源）
             _context?.Dispose();

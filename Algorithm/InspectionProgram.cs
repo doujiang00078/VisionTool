@@ -23,6 +23,11 @@ namespace VisionTool.Algorithm
 		private WorkflowEngine _workflowEngine;
 
 		/// <summary>
+		/// 当前 WorkflowEngine 实例，供 step 层读取已完成依赖的快照。
+		/// </summary>
+		public WorkflowEngine CurrentEngine => _workflowEngine;
+
+		/// <summary>
 		/// 内存监控器实例
 		/// </summary>
 		public MemoryMonitor MemoryMonitor { get; private set; }

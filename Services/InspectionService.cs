@@ -41,6 +41,12 @@ namespace VisionTool.Services
 		private CancellationTokenSource _cancellationTokenSource;
 
 		/// <summary>
+		/// 同一 InspectionService 实例的调用级并发锁。
+		/// 解决 RecipeBlock 允许多帧并发时，共享 step 实例的 _latestResult 被另一帧提前 Dispose 的问题。
+		/// </summary>
+		private readonly SemaphoreSlim _inspectionLock = new SemaphoreSlim(1, 1);
+
+		/// <summary>
 		/// 当工作流任务状态变化时触发，供UI订阅。
 		/// </summary>
 		public event Action<WorkflowTaskStatus> OnWorkflowTaskStatusChanged;
@@ -65,22 +71,30 @@ namespace VisionTool.Services
 		/// <param name="runType">运行类型</param>
 		public async Task StartLiveInspection(HObject currentImage, int timeoutMs = 0, RunType runType = RunType.当前图)
 		{
-			_cancellationTokenSource?.Cancel(); // 取消之前的操作
-			_cancellationTokenSource?.Dispose();
-
-			// 根据超时参数创建 CancellationTokenSource
-			if (timeoutMs > 0)
+			await _inspectionLock.WaitAsync().ConfigureAwait(false);
+			try
 			{
-				_cancellationTokenSource = new CancellationTokenSource(TimeSpan.FromMilliseconds(timeoutMs));
-				System.Diagnostics.Debug.WriteLine($"InspectionService: 开始实时检测，超时时间: {timeoutMs}ms.");
-			}
-			else
-			{
-				_cancellationTokenSource = new CancellationTokenSource();
-				System.Diagnostics.Debug.WriteLine("InspectionService: 开始实时检测（无超时限制）.");
-			}
+				_cancellationTokenSource?.Cancel(); // 取消之前的操作
+				_cancellationTokenSource?.Dispose();
 
-			await _inspectionProgram.StartInspectionAsync(currentImage, _cancellationTokenSource.Token, runType);
+				// 根据超时参数创建 CancellationTokenSource
+				if (timeoutMs > 0)
+				{
+					_cancellationTokenSource = new CancellationTokenSource(TimeSpan.FromMilliseconds(timeoutMs));
+					System.Diagnostics.Debug.WriteLine($"InspectionService: 开始实时检测，超时时间: {timeoutMs}ms.");
+				}
+				else
+				{
+					_cancellationTokenSource = new CancellationTokenSource();
+					System.Diagnostics.Debug.WriteLine("InspectionService: 开始实时检测（无超时限制）.");
+				}
+
+				await _inspectionProgram.StartInspectionAsync(currentImage, _cancellationTokenSource.Token, runType);
+			}
+			finally
+			{
+				_inspectionLock.Release();
+			}
 		}
 
 		/// <summary>
@@ -92,22 +106,30 @@ namespace VisionTool.Services
 		/// <param name="runType">运行类型</param>
 		public async Task RunWorkflowToStep(HObject debugImage, string runToTaskName, int timeoutMs = 0, RunType runType = RunType.当前图)
 		{
-			_cancellationTokenSource?.Cancel(); // 取消之前的操作
-			_cancellationTokenSource?.Dispose();
-
-			// 根据超时参数创建 CancellationTokenSource
-			if (timeoutMs > 0)
+			await _inspectionLock.WaitAsync().ConfigureAwait(false);
+			try
 			{
-				_cancellationTokenSource = new CancellationTokenSource(TimeSpan.FromMilliseconds(timeoutMs));
-				System.Diagnostics.Debug.WriteLine($"InspectionService: 在调试模式下运行任务“{runToTaskName}”，超时时间: {timeoutMs}ms.");
-			}
-			else
-			{
-				_cancellationTokenSource = new CancellationTokenSource();
-				System.Diagnostics.Debug.WriteLine($"InspectionService: 在调试模式下运行任务“{runToTaskName}”（无超时限制）.");
-			}
+				_cancellationTokenSource?.Cancel(); // 取消之前的操作
+				_cancellationTokenSource?.Dispose();
 
-			await _inspectionProgram.RunToStepAsync(debugImage, runToTaskName, _cancellationTokenSource.Token, runType);
+				// 根据超时参数创建 CancellationTokenSource
+				if (timeoutMs > 0)
+				{
+					_cancellationTokenSource = new CancellationTokenSource(TimeSpan.FromMilliseconds(timeoutMs));
+					System.Diagnostics.Debug.WriteLine($"InspectionService: 在调试模式下运行任务“{runToTaskName}”，超时时间: {timeoutMs}ms.");
+				}
+				else
+				{
+					_cancellationTokenSource = new CancellationTokenSource();
+					System.Diagnostics.Debug.WriteLine($"InspectionService: 在调试模式下运行任务“{runToTaskName}”（无超时限制）.");
+				}
+
+				await _inspectionProgram.RunToStepAsync(debugImage, runToTaskName, _cancellationTokenSource.Token, runType);
+			}
+			finally
+			{
+				_inspectionLock.Release();
+			}
 		}
 
 		/// <summary>
@@ -119,22 +141,30 @@ namespace VisionTool.Services
 		/// <param name="runType">运行类型</param>
 		public async Task ExecuteSingleStep(string taskName, HObject debugImage, int timeoutMs = 0, RunType runType = RunType.当前图)
 		{
-			_cancellationTokenSource?.Cancel(); // 取消之前的操作
-			_cancellationTokenSource?.Dispose();
-
-			// 根据超时参数创建 CancellationTokenSource
-			if (timeoutMs > 0)
+			await _inspectionLock.WaitAsync().ConfigureAwait(false);
+			try
 			{
-				_cancellationTokenSource = new CancellationTokenSource(TimeSpan.FromMilliseconds(timeoutMs));
-				System.Diagnostics.Debug.WriteLine($"InspectionService: 正在执行单步“{taskName}”，超时时间: {timeoutMs}ms.");
-			}
-			else
-			{
-				_cancellationTokenSource = new CancellationTokenSource();
-				System.Diagnostics.Debug.WriteLine($"InspectionService: 正在执行单步“{taskName}”（无超时限制）.");
-			}
+				_cancellationTokenSource?.Cancel(); // 取消之前的操作
+				_cancellationTokenSource?.Dispose();
 
-			await _inspectionProgram.ExecuteSingleStepAsync(taskName, debugImage, _cancellationTokenSource.Token, runType);
+				// 根据超时参数创建 CancellationTokenSource
+				if (timeoutMs > 0)
+				{
+					_cancellationTokenSource = new CancellationTokenSource(TimeSpan.FromMilliseconds(timeoutMs));
+					System.Diagnostics.Debug.WriteLine($"InspectionService: 正在执行单步“{taskName}”，超时时间: {timeoutMs}ms.");
+				}
+				else
+				{
+					_cancellationTokenSource = new CancellationTokenSource();
+					System.Diagnostics.Debug.WriteLine($"InspectionService: 正在执行单步“{taskName}”（无超时限制）.");
+				}
+
+				await _inspectionProgram.ExecuteSingleStepAsync(taskName, debugImage, _cancellationTokenSource.Token, runType);
+			}
+			finally
+			{
+				_inspectionLock.Release();
+			}
 		}
 
 		/// <summary>
@@ -280,6 +310,7 @@ namespace VisionTool.Services
 		{
 			_cancellationTokenSource?.Dispose();
 			_inspectionProgram?.Dispose(); // 释放 InspectionProgram 内部的图像资源
+			_inspectionLock.Dispose();
 			System.Diagnostics.Debug.WriteLine("InspectionService disposed.");
 		}
 	}

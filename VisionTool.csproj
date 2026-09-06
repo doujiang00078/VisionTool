@@ -1,59 +1,31 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>Library</OutputType>
+    <UseWPF>true</UseWPF>
     <RootNamespace>VisionTool</RootNamespace>
     <AssemblyName>VisionTool</AssemblyName>
-	<UseWindowsForms>true</UseWindowsForms>
-	  <UseWPF>true</UseWPF>
   </PropertyGroup>
-
-  <ItemGroup>
-    <Compile Remove="Algorithm\InspectionSteps\**" />
-    <Compile Remove="Tests\**" />
-    <EmbeddedResource Remove="Algorithm\InspectionSteps\**" />
-    <EmbeddedResource Remove="Tests\**" />
-    <None Remove="Algorithm\InspectionSteps\**" />
-    <None Remove="Tests\**" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <None Remove="DynamicConfigView.xaml" />
-  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Newtonsoft.Json" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\wh_multi_maincutter\VisionTool.Enums\VisionTool.Enums.csproj" />
-    <ProjectReference Include="..\wh_multi_maincutter\WHWpf.Theming\WHWpf.Theming.csproj" />
+    <ProjectReference Include="..\..\New_Mode\wh_multi_maincutter\VisionTool.Enums\VisionTool.Enums.csproj" />
+    <ProjectReference Include="..\..\New_Mode\wh_multi_maincutter\WHWpf.Theming\WHWpf.Theming.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <Reference Include="halcondotnet">
-      <HintPath>..\Mydll\halcondotnet.dll</HintPath>
-    </Reference>
-    <Reference Include="MstBaseStructure">
-      <HintPath>..\Mydll\MstBaseStructure.dll</HintPath>
-    </Reference>
-    <Reference Include="MstImagelib">
-      <HintPath>..\Mydll\MstImagelib.dll</HintPath>
+      <HintPath>Mydll\halcondotnet.dll</HintPath>
     </Reference>
     <Reference Include="MstPicboxTool">
-      <HintPath>..\Mydll\MstPicboxTool.dll</HintPath>
+      <HintPath>Mydll\MstPicboxTool.dll</HintPath>
     </Reference>
-    <Reference Include="MstTreeGridView">
-      <HintPath>..\Mydll\MstTreeGridView.dll</HintPath>
+    <Reference Include="MstImagelib">
+      <HintPath>Mydll\MstImagelib.dll</HintPath>
     </Reference>
-    <Reference Include="SunnyUI.Pluse">
-      <HintPath>..\Mydll\SunnyUI.Pluse.dll</HintPath>
-    </Reference>
-    <Reference Include="System.Design" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Compile Update="DynamicConfigView.xaml.cs" />
   </ItemGroup>
 
 </Project>
