@@ -28,16 +28,6 @@ namespace VisionTool.Algorithm
 		public WorkflowEngine CurrentEngine => _workflowEngine;
 
 		/// <summary>
-		/// 内存监控器实例
-		/// </summary>
-		public MemoryMonitor MemoryMonitor { get; private set; }
-
-		/// <summary>
-		/// 当前工作流是否按串行模式执行。
-		/// </summary>
-		public bool IsSerialExecution => _workflowEngine?.ForceSerialExecution == true;
-
-		/// <summary>
 		/// 工作流执行上下文，包含图像、参数、执行结果等共享数据
 		/// </summary>
 		private WorkflowExecutionContext _context;
@@ -114,7 +104,7 @@ namespace VisionTool.Algorithm
 		/// <param name="initialImage">当前帧图像（可能是多通道图像）</param>
 		/// <param name="cancellationToken">取消令牌，用于中止检测流程</param>
 		/// <param name="runType">运行类型，指定使用模板图还是当前图进行检测。默认为当前图。</param>
-		public async Task StartInspectionAsync(HObject initialImage, CancellationToken cancellationToken, RunType runType = RunType.当前图)
+		public async Task StartInspectionAsync(HObject initialImage, CancellationToken cancellationToken, RunType runType = RunType.当前图, int timeoutMs = 0)
 		{
 			// 设置运行类型和当前图像
 			_context.RunImageType = runType;
@@ -146,7 +136,7 @@ namespace VisionTool.Algorithm
 			}
 
 			// 启动工作流执行
-			await _workflowEngine.StartWorkflowAsync(cancellationToken);
+			await _workflowEngine.StartWorkflowAsync(cancellationToken, timeoutMs: timeoutMs);
 		}
 
 		/// <summary>
@@ -419,17 +409,7 @@ namespace VisionTool.Algorithm
 		}
 
 		/// <summary>
-		/// 设置内存监控器。传入 null 可停止监控。
-		/// </summary>
-		/// <param name="monitor">内存监控器实例</param>
-		public void SetMemoryMonitor(MemoryMonitor monitor)
-		{
-			MemoryMonitor = monitor;
-			_workflowEngine.MemoryMonitor = monitor;
-		}
-
-		/// <summary>
-		/// 设置串行执行模式：任务按拓扑顺序逐个执行，per-step 内存增量精确归属
+		/// 设置串行执行模式
 		/// </summary>
 		public void SetSerialExecution(bool serial)
 		{

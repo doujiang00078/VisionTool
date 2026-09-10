@@ -26,16 +26,6 @@ namespace VisionTool.Services
 		private InspectionProgram _inspectionProgram;
 
 		/// <summary>
-		/// 内存监控器（可空，未启用时为 null）
-		/// </summary>
-		public MemoryMonitor MemoryMonitor { get; private set; }
-
-		/// <summary>
-		/// 当前工作流是否按串行模式执行。
-		/// </summary>
-		public bool IsSerialExecution => _inspectionProgram?.IsSerialExecution == true;
-
-		/// <summary>
 		/// 取消令牌
 		/// </summary>
 		private CancellationTokenSource _cancellationTokenSource;
@@ -89,7 +79,7 @@ namespace VisionTool.Services
 					System.Diagnostics.Debug.WriteLine("InspectionService: 开始实时检测（无超时限制）.");
 				}
 
-				await _inspectionProgram.StartInspectionAsync(currentImage, _cancellationTokenSource.Token, runType);
+				await _inspectionProgram.StartInspectionAsync(currentImage, _cancellationTokenSource.Token, runType, timeoutMs);
 			}
 			finally
 			{
@@ -263,36 +253,6 @@ namespace VisionTool.Services
 		public DefectNameCollection GetDefectAlgorithmName(bool isCustom = false)
 		{
 			return _inspectionProgram.GetDefectAlgorithmName(isCustom);
-		}
-
-		/// <summary>
-		/// 启用内存监控。仅当工作流在本帧开始时已处于串行模式才会实际采样，
-		/// 以避免并行任务之间的内存变化被错误归因到单个步骤。
-		/// </summary>
-		/// <param name="logInterval">每 N 帧输出一次汇总日志（默认 100）</param>
-		/// <param name="alertThresholdBytes">单步增量告警阈值（默认 10MB）</param>
-		public void EnableMemoryMonitor(int logInterval = 100, long alertThresholdBytes = 10 * 1024 * 1024)
-		{
-			MemoryMonitor = new MemoryMonitor(logInterval, alertThresholdBytes);
-			_inspectionProgram.SetMemoryMonitor(MemoryMonitor);
-		}
-
-		/// <summary>
-		/// 停止内存监控并释放统计引用。正在执行的工作流保留其开始时的监控快照，
-		/// 仅完成当前帧的收尾；后续帧不再采样。
-		/// </summary>
-		public void DisableMemoryMonitor()
-		{
-			_inspectionProgram?.SetMemoryMonitor(null);
-			MemoryMonitor = null;
-		}
-
-		/// <summary>
-		/// 获取内存监控统计（返回 null 如果未启用）
-		/// </summary>
-		public System.Collections.Concurrent.ConcurrentDictionary<string, StepMemoryStats> GetMemoryStats()
-		{
-			return MemoryMonitor?.GetAllStats();
 		}
 
 		/// <summary>

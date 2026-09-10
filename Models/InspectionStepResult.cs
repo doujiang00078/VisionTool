@@ -1,6 +1,7 @@
 using HalconDotNet;
 using System;
 using System.Collections.Generic;
+using System.Threading;
 
 namespace VisionTool.Models
 {
@@ -70,6 +71,8 @@ namespace VisionTool.Models
         /// </summary>
         public List<IDisposable> Temporaries { get; set; } = [];
 
+        private int _disposed;
+
         public InspectionStepResult()
         {
             StepName = string.Empty;
@@ -85,6 +88,7 @@ namespace VisionTool.Models
 
         public void Dispose()
         {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
             if (DebugObjects != null)
             {
                 foreach (var obj in DebugObjects)

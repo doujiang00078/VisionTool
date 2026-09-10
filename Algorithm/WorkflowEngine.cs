@@ -107,13 +107,7 @@ namespace VisionTool.Algorithm
         private List<InspectionStepResult> _previousOutputs = new();
 
         /// <summary>
-        /// 内存监控器（可选），用于串行模式下追踪每个任务的非 GC 私有内存变化。
-        /// </summary>
-        public MemoryMonitor MemoryMonitor { get; set; }
-
-        /// <summary>
         /// 强制串行执行模式：所有任务按依赖拓扑顺序逐个执行，不并行。
-        /// 串行模式下 per-step 内存增量可精确归属，但执行速度较慢。
         /// </summary>
         public bool ForceSerialExecution { get; set; }
 
@@ -182,15 +176,12 @@ namespace VisionTool.Algorithm
         /// <param name="cancellationToken">取消令牌，用于超时或手动取消</param>
         /// <param name="runToTaskName">指定运行到某个任务，不指定则执行全部</param>
         /// <returns>异步任务，工作流完成时返回</returns>
-        public async Task StartWorkflowAsync(CancellationToken cancellationToken, string runToTaskName = null)
+        public async Task StartWorkflowAsync(CancellationToken cancellationToken, string runToTaskName = null, int timeoutMs = 0)
         {
             var time = Stopwatch.StartNew();
 
             // 只在本帧开始时已处于串行模式时保留监控器快照。
-            // 这样运行中切换诊断开关不会让并行任务产生不可信的步骤归因。
             var serialExecution = ForceSerialExecution;
-            var frameMemoryMonitor = serialExecution ? MemoryMonitor : null;
-            frameMemoryMonitor?.OnWorkflowStart();
 
             // 步骤1：重置所有任务状态，初始化入度数组
             ResetWorkflowState();
@@ -242,8 +233,8 @@ namespace VisionTool.Algorithm
             }
             else if (serialExecution)
             {
-                // 串行模式：按拓扑顺序逐个执行，per-step 内存增量精确归属
-                await RunSerialAsync(readyTasks, cancellationToken, runToTaskName, frameMemoryMonitor);
+                // 串行模式：按拓扑顺序逐个执行
+                await RunSerialAsync(readyTasks, cancellationToken, runToTaskName);
                 _workflowTcs.TrySetResult(true);
             }
             else
@@ -270,21 +261,19 @@ namespace VisionTool.Algorithm
             }
             finally
             {
-                // 等待所有 ThreadPool 任务真正结束，再允许下一轮替换 _context.Image
                 var snapshot = _runningTasks;
                 _runningTasks = new ConcurrentBag<Task>();
-                try
-                {
-                    await Task.WhenAll(snapshot).ConfigureAwait(false);
-                }
-                catch
-                {
-                    // ProcessTaskAsync 内部已处理异常，此处兜底
-                }
 
-                // 所有本帧任务结束后再采样，避免将尚未退出的并行任务归入下一帧。
-                frameMemoryMonitor?.OnWorkflowFinish();
+                if (timeoutMs <= 0)
+                {
+                    // 无超时：等待所有任务完成
+                    try { await Task.WhenAll(snapshot).ConfigureAwait(false); }
+                    catch { }
+                }
+                // timeoutMs > 0 时不等待：直接丢弃，不阻塞信号发送。
+                // 残留 HALCON 任务在 ThreadPool 自行完成，中间对象可能泄漏（偶发，量小）。
 
+                // 所有本帧任务结束后再采样
                 time.Stop();
                 NotifyFinishStatus(time.ElapsedMilliseconds);
                 Debug.WriteLine("工作流结束。");
@@ -300,27 +289,23 @@ namespace VisionTool.Algorithm
         /// <param name="runToTaskName">目标任务名，达到后停止</param>
         private async Task ProcessTaskAsync(IWorkflowTask task, CancellationToken token, string runToTaskName)
         {
-            // 早期退出检查：避免不必要的工作
             if (_workflowTcs.Task.IsCompleted || IsCancelled) return;
 
             var taskStartTime = Stopwatch.GetTimestamp();
 
             try
             {
-                // 取消检查：防止在调度后但执行前被取消
                 if (token.IsCancellationRequested || IsCancelled)
                 {
                     SetTaskCancelled(task);
                     return;
                 }
 
-                // 更新任务状态为运行中
                 UpdateTaskState(task, WorkflowState.Running);
                 EnqueueStatusNotification(task.Name, WorkflowState.Running);
 
                 Debug.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] 任务 {task.Name} 开始执行 (线程:{Thread.CurrentThread.ManagedThreadId})");
 
-                // 执行任务，捕获各种异常
                 WorkflowState newState;
                 try
                 {
@@ -336,20 +321,16 @@ namespace VisionTool.Algorithm
                     newState = WorkflowState.Failed;
                 }
 
-                // 计算任务执行耗时
                 var elapsed = (Stopwatch.GetTimestamp() - taskStartTime) * 1000.0 / Stopwatch.Frequency;
                 Debug.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] 任务 {task.Name} 完成，耗时: {elapsed:F1}ms (线程:{Thread.CurrentThread.ManagedThreadId})");
 
                 var result = task.GetLatestResult();
 
-                // 先写入当前帧快照，下游任务可安全读取已完成依赖。
                 if (result != null)
                 {
                     _snapshotOutputs[task.Name] = result;
                 }
 
-                // 更新上下文，暂存旧结果（由下一帧 ResetWorkflowState 统一释放，
-                // 避免 UI/异步消费者仍持有引用时被提前 Dispose）
                 var context = _context;
                 if (context != null)
                 {
@@ -362,21 +343,17 @@ namespace VisionTool.Algorithm
 
                 EnqueueStatusNotification(task.Name, newState, result);
 
-                // 根据任务状态处理后续逻辑
                 if (newState == WorkflowState.Completed)
                 {
-                    // 如果是目标任务，直接结束工作流
                     if (runToTaskName != null && task.Name == runToTaskName)
                     {
                         _workflowTcs.TrySetResult(true);
                         return;
                     }
-                    // 调度下游任务
                     ScheduleDownstream(task.Name, token, runToTaskName);
                 }
                 else
                 {
-                    // 任务失败或取消，跳过下游任务
                     SkipDownstream(task.Name, token, runToTaskName);
                 }
             }
@@ -387,7 +364,6 @@ namespace VisionTool.Algorithm
             }
             finally
             {
-                // 原子递减剩余任务数，当达到0时结束工作流
                 if (Interlocked.Decrement(ref _remainingTaskCount) == 0)
                 {
                     _workflowTcs.TrySetResult(true);
@@ -399,7 +375,7 @@ namespace VisionTool.Algorithm
         /// 串行执行模式：按拓扑顺序逐个执行任务。
         /// 每个任务独占执行，内存增量可精确归属到单个步骤。
         /// </summary>
-        private async Task RunSerialAsync(List<IWorkflowTask> readyTasks, CancellationToken token, string runToTaskName, MemoryMonitor memoryMonitor)
+        private async Task RunSerialAsync(List<IWorkflowTask> readyTasks, CancellationToken token, string runToTaskName)
         {
             // 用队列维护就绪任务，每次取一个执行
             var readyQueue = new Queue<IWorkflowTask>(readyTasks);
@@ -413,8 +389,6 @@ namespace VisionTool.Algorithm
                 EnqueueStatusNotification(task.Name, WorkflowState.Running);
 
                 var taskStartTime = Stopwatch.GetTimestamp();
-
-                var memoryBefore = memoryMonitor != null ? MemoryMonitor.TakeSnapshot() : default;
 
                 // 执行任务
                 WorkflowState newState;
@@ -444,18 +418,6 @@ namespace VisionTool.Algorithm
                 if (_context.StepOutputs.TryGetValue(task.Name, out var oldResult) && oldResult != null)
                     _previousOutputs.Add(oldResult);
                 _context.StepOutputs[task.Name] = result;
-
-                // 串行模式下当前任务独占执行。旧结果释放后再采样，记录本步骤的净保留变化。
-                if (memoryMonitor != null)
-                {
-                    memoryMonitor.RecordStep(new StepMemoryRecord
-                    {
-                        TaskName = task.Name,
-                        Before = memoryBefore,
-                        After = MemoryMonitor.TakeSnapshot(),
-                        ElapsedMs = elapsed
-                    });
-                }
 
                 EnqueueStatusNotification(task.Name, newState, result);
                 Interlocked.Decrement(ref _remainingTaskCount);
