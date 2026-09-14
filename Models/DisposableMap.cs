@@ -16,8 +16,8 @@ namespace VisionTool.Models
 	/// - 写操作（Set/Remove）仍通过 _lock 修改 _items，不影响并发读者。
 	/// - 批量替换（SetAll/Clear）在锁内原子替换 _snapshot，此时无并发读者（帧间）。
 	/// </summary>
-	/// <typeparam name="T">值类型，必须是引用类型且实现 IDisposable</typeparam>
-	public class DisposableMap<T> : IDisposable, ICollection<KeyValuePair<string, T>> where T : class, IDisposable
+	/// <typeparam name="T">值类型，必须是引用类型；若实现了 IDisposable，则在替换/清空时自动释放（Halcon12 的 HTuple 不实现 IDisposable，故约束不强制）</typeparam>
+	public class DisposableMap<T> : IDisposable, ICollection<KeyValuePair<string, T>> where T : class
 	{
 		private readonly Dictionary<string, T> _items = new Dictionary<string, T>();
 		private readonly object _lock = new object();
@@ -66,7 +66,7 @@ namespace VisionTool.Models
 					if (ReferenceEquals(existing, value))
 						return;
 					if (_ownsValues)
-						existing?.Dispose();
+						(existing as IDisposable)?.Dispose();
 				}
 				_items[key] = value;
 				_snapshot = new Dictionary<string, T>(_items);
@@ -103,7 +103,7 @@ namespace VisionTool.Models
 				if (_items.TryGetValue(key, out T existing))
 				{
 					if (_ownsValues)
-						existing?.Dispose();
+						(existing as IDisposable)?.Dispose();
 					_items.Remove(key);
 					_snapshot = new Dictionary<string, T>(_items);
 					return true;
@@ -123,7 +123,7 @@ namespace VisionTool.Models
 				if (_ownsValues)
 				{
 					foreach (var kvp in _items)
-						kvp.Value?.Dispose();
+						(kvp.Value as IDisposable)?.Dispose();
 				}
 				_items.Clear();
 				if (source != null)
@@ -154,7 +154,7 @@ namespace VisionTool.Models
 				if (_ownsValues)
 				{
 					foreach (var kvp in _items)
-						kvp.Value?.Dispose();
+						(kvp.Value as IDisposable)?.Dispose();
 				}
 				_items.Clear();
 				_snapshot = new Dictionary<string, T>();

@@ -53,4 +53,10 @@
     <OutputPath>bin\$(Platform)\$(Configuration)\</OutputPath>
   </PropertyGroup>
 
+  <!-- Halcon12 版：使用独立的中间目录与输出目录，避免与 Halcon18 版互相污染 -->
+  <PropertyGroup Condition="'$(HalconVersion)' == '12'">
+    <BaseIntermediateOutputPath>obj\halcon12\</BaseIntermediateOutputPath>
+    <OutputPath>bin\$(Platform)\$(Configuration)\halcon12\</OutputPath>
+  </PropertyGroup>
+
 </Project>

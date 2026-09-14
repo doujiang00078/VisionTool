@@ -3,20 +3,24 @@
   <PropertyGroup>
     <OutputType>Library</OutputType>
     <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
     <RootNamespace>VisionTool</RootNamespace>
     <AssemblyName>VisionTool</AssemblyName>
+    <!-- 默认 Halcon 18；生成 Halcon12 版：dotnet build VisionTool.csproj -p:HalconVersion=12 -->
+    <HalconVersion Condition="'$(HalconVersion)' == ''">18</HalconVersion>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Newtonsoft.Json" />
   </ItemGroup>
 
-  <ItemGroup>
+  <!-- ==================== Halcon 18（默认） ==================== -->
+  <ItemGroup Condition="'$(HalconVersion)' != '12'">
     <ProjectReference Include="..\wh_multi_maincutter\VisionTool.Enums\VisionTool.Enums.csproj" />
     <ProjectReference Include="..\wh_multi_maincutter\WHWpf.Theming\WHWpf.Theming.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
+  <ItemGroup Condition="'$(HalconVersion)' != '12'">
     <Reference Include="halcondotnet">
       <HintPath>Mydll\halcondotnet.dll</HintPath>
     </Reference>
@@ -25,6 +29,26 @@
     </Reference>
     <Reference Include="MstImagelib">
       <HintPath>Mydll\MstImagelib.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+  <!-- ==================== Halcon 12 ====================
+       注意：halcondotnet 必须用「带路径的 Include」写法，而不是 HintPath。
+       否则工程目录 Mydll\ 下的 Halcon18 halcondotnet.dll 会被 MSBuild 抢占，
+       悄悄编出引用 18.11 的 DLL（AutoUnify=false 也压不住）。 -->
+  <ItemGroup Condition="'$(HalconVersion)' == '12'">
+    <ProjectReference Include="..\wh_multi_maincutter-12-合并\VisionTool.Enums\VisionTool.Enums.csproj" />
+    <ProjectReference Include="..\wh_multi_maincutter-12-合并\WHWpf.Theming\WHWpf.Theming.csproj" />
+    <ProjectReference Include="..\wh_multi_maincutter-12-合并\Halcon12Compat\Halcon12Compat.csproj" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(HalconVersion)' == '12'">
+    <Reference Include="..\wh_multi_maincutter-12-合并\Mydll\halcondotnet.dll" />
+    <Reference Include="MstPicboxTool">
+      <HintPath>..\wh_multi_maincutter-12-合并\Mydll\MstPicboxTool.dll</HintPath>
+    </Reference>
+    <Reference Include="MstImagelib">
+      <HintPath>..\wh_multi_maincutter-12-合并\Mydll\MstImagelib.dll</HintPath>
     </Reference>
   </ItemGroup>
 
