@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -82,16 +82,14 @@ namespace VisionTool.Algorithm
         private readonly HashSet<string> _alwaysRunTasks = new();
 
         /// <summary>
-        /// 当前轮次所有 ProcessTaskAsync 的 Task 引用。
-        /// 用于在 StartWorkflowAsync 返回前等待所有 ThreadPool 任务真正结束，
-        /// 防止下一轮 _context.Image 的 SetAll/Clear 释放 HObject 时仍有旧任务在引用。
+        /// 登记与停止调度使用同一把锁。任务先计数再入线程池，直到其执行和下游调度
+        /// 全部退出才减计数，避免 Task.WhenAll 快照遗漏后来加入的任务。
         /// </summary>
-        private ConcurrentBag<Task> _runningTasks = new();
-
-        /// <summary>
-        /// ScheduleDownstream 复用的就绪任务缓冲区，避免每帧分配数组
-        /// </summary>
-        private IWorkflowTask[] _readyBuffer;
+        private readonly object _taskSchedulingLock = new();
+        private readonly HashSet<string> _scheduledTaskNames = new();
+        private TaskCompletionSource<bool> _tasksDrained;
+        private int _activeTaskCount;
+        private bool _schedulingStopped;
 
         /// <summary>
         /// 当前帧已完成步骤快照。
@@ -104,7 +102,7 @@ namespace VisionTool.Algorithm
         /// 上一帧的 StepOutputs，在下一帧 ResetWorkflowState 时统一释放。
         /// 解决 UI/异步消费者仍持有旧 result 引用时，ProcessTaskAsync 提前 Dispose 导致的 use-after-free。
         /// </summary>
-        private List<InspectionStepResult> _previousOutputs = new();
+        private readonly ConcurrentBag<InspectionStepResult> _previousOutputs = new();
 
         /// <summary>
         /// 强制串行执行模式：所有任务按依赖拓扑顺序逐个执行，不并行。
@@ -224,35 +222,35 @@ namespace VisionTool.Algorithm
                 throw new InvalidOperationException("工作流存在循环依赖或无起始节点。");
             }
 
-            // 重置任务跟踪集合
-            _runningTasks = new ConcurrentBag<Task>();
-
-            if (_tasks.Count == 0)
+            // 登记根任务前初始化本帧排空信号。
+            lock (_taskSchedulingLock)
             {
-                _workflowTcs.TrySetResult(true);
-            }
-            else if (serialExecution)
-            {
-                // 串行模式：按拓扑顺序逐个执行
-                await RunSerialAsync(readyTasks, cancellationToken, runToTaskName);
-                _workflowTcs.TrySetResult(true);
-            }
-            else
-            {
-                // 步骤5：并行启动所有起始任务
-                foreach (var task in readyTasks)
-                {
-                    var t = task;
-                    // 使用 Task.Run 替代 UnsafeQueueUserWorkItem，以跟踪所有 ProcessTaskAsync 的 Task。
-                    // 防止 CTS 超时取消后 TCS 提前完成，导致下一轮 _context.Image.SetAll()
-                    // 释放旧 HObject 时仍有旧任务在 ThreadPool 上引用它们（AccessViolationException）。
-                    _runningTasks.Add(Task.Run(() => ProcessTaskAsync(t, cancellationToken, runToTaskName)));
-                }
+                _scheduledTaskNames.Clear();
+                _activeTaskCount = 0;
+                _schedulingStopped = false;
+                _tasksDrained = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             }
 
-            // 步骤6：等待工作流完成信号
             try
             {
+                if (_tasks.Count == 0)
+                {
+                    _workflowTcs.TrySetResult(true);
+                }
+                else if (serialExecution)
+                {
+                    // 串行模式：按拓扑顺序逐个执行
+                    await RunSerialAsync(readyTasks, cancellationToken, runToTaskName).ConfigureAwait(false);
+                    _workflowTcs.TrySetResult(true);
+                }
+                else
+                {
+                    // 步骤5：并行启动所有起始任务
+                    foreach (var task in readyTasks)
+                        ScheduleTask(task, cancellationToken, runToTaskName);
+                }
+
+                // 步骤6：等待工作流完成信号
                 await _workflowTcs.Task.ConfigureAwait(false);
             }
             catch (TaskCanceledException)
@@ -261,22 +259,64 @@ namespace VisionTool.Algorithm
             }
             finally
             {
-                var snapshot = _runningTasks;
-                _runningTasks = new ConcurrentBag<Task>();
-
-                if (timeoutMs <= 0)
+                Task drained;
+                lock (_taskSchedulingLock)
                 {
-                    // 无超时：等待所有任务完成
-                    try { await Task.WhenAll(snapshot).ConfigureAwait(false); }
-                    catch { }
+                    _schedulingStopped = true;
+                    if (_activeTaskCount == 0)
+                        _tasksDrained.TrySetResult(true);
+                    drained = _tasksDrained.Task;
                 }
-                // timeoutMs > 0 时不等待：直接丢弃，不阻塞信号发送。
-                // 残留 HALCON 任务在 ThreadPool 自行完成，中间对象可能泄漏（偶发，量小）。
+                // CancellationToken 无法中断已经进入 HALCON 的同步算子。
+                // 即使超时，也必须等所有算子和 finally 退出，调用方才可释放本帧输入。
+                await drained.ConfigureAwait(false);
 
                 // 所有本帧任务结束后再采样
                 time.Stop();
                 NotifyFinishStatus(time.ElapsedMilliseconds);
                 Debug.WriteLine("工作流结束。");
+            }
+        }
+
+        private void ScheduleTask(IWorkflowTask task, CancellationToken token, string runToTaskName)
+        {
+            lock (_taskSchedulingLock)
+            {
+                if (_schedulingStopped || IsCancelled || token.IsCancellationRequested
+                    || _workflowTcs.Task.IsCompleted || task.State == WorkflowState.Skipped
+                    || !_scheduledTaskNames.Add(task.Name))
+                    return;
+
+                UpdateTaskState(task, WorkflowState.Ready);
+                _activeTaskCount++;
+                try
+                {
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await ProcessTaskAsync(task, token, runToTaskName).ConfigureAwait(false);
+                        }
+                        finally
+                        {
+                            CompleteScheduledTask();
+                        }
+                    });
+                }
+                catch (Exception ex)
+                {
+                    CompleteScheduledTask();
+                    _workflowTcs.TrySetException(ex);
+                }
+            }
+        }
+
+        private void CompleteScheduledTask()
+        {
+            lock (_taskSchedulingLock)
+            {
+                if (--_activeTaskCount == 0 && _schedulingStopped)
+                    _tasksDrained.TrySetResult(true);
             }
         }
 
@@ -334,7 +374,8 @@ namespace VisionTool.Algorithm
                 var context = _context;
                 if (context != null)
                 {
-                    if (context.StepOutputs.TryGetValue(task.Name, out var oldResult) && oldResult != null)
+                    if (context.StepOutputs.TryGetValue(task.Name, out var oldResult) && oldResult != null
+                        && !ReferenceEquals(oldResult, result))
                     {
                         _previousOutputs.Add(oldResult);
                     }
@@ -415,7 +456,8 @@ namespace VisionTool.Algorithm
                 {
                     _snapshotOutputs[task.Name] = result;
                 }
-                if (_context.StepOutputs.TryGetValue(task.Name, out var oldResult) && oldResult != null)
+                if (_context.StepOutputs.TryGetValue(task.Name, out var oldResult) && oldResult != null
+                    && !ReferenceEquals(oldResult, result))
                     _previousOutputs.Add(oldResult);
                 _context.StepOutputs[task.Name] = result;
 
@@ -493,11 +535,8 @@ namespace VisionTool.Algorithm
             if (IsCancelled || token.IsCancellationRequested) return;
             if (!_downstreamDependencies.TryGetValue(parentTaskName, out var children)) return;
 
-            // 【性能优化】复用类级缓冲区，避免每帧分配数组
-            if (_readyBuffer == null || _readyBuffer.Length < children.Count)
-                _readyBuffer = new IWorkflowTask[children.Count];
-            var buffer = _readyBuffer;
-            int readyCount = 0;
+            // 多个父任务会同时到达这里，缓冲区必须属于本次调用。
+            var readyTasks = new List<IWorkflowTask>(children.Count);
 
             // 遍历所有子任务，检查入度
             foreach (var childName in children)
@@ -509,21 +548,19 @@ namespace VisionTool.Algorithm
                     && _tasks.TryGetValue(childName, out var childTask)
                     && !IsCancelled)
                 {
-                    UpdateTaskState(childTask, WorkflowState.Ready);
-                    buffer[readyCount++] = childTask;
+                    readyTasks.Add(childTask);
                 }
             }
 
             // 批量启动所有就绪的任务
-            if (readyCount > 0)
+            if (readyTasks.Count > 0)
             {
 #if DEBUG
-                Debug.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] {parentTaskName} 完成，触发 {readyCount} 个下游任务");
+                Debug.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] {parentTaskName} 完成，触发 {readyTasks.Count} 个下游任务");
 #endif
-                for (int i = 0; i < readyCount; i++)
+                foreach (var task in readyTasks)
                 {
-                    var t = buffer[i];
-                    _runningTasks.Add(Task.Run(() => ProcessTaskAsync(t, token, runToTaskName)));
+                    ScheduleTask(task, token, runToTaskName);
                 }
             }
         }
@@ -554,17 +591,20 @@ namespace VisionTool.Algorithm
                             && Interlocked.Decrement(ref _currentInDegrees[idx]) == 0
                             && !IsCancelled)
                         {
-                            UpdateTaskState(childTask, WorkflowState.Ready);
-                            var t = childTask;
-                            _runningTasks.Add(Task.Run(() => ProcessTaskAsync(t, token, runToTaskName)));
+                            ScheduleTask(childTask, token, runToTaskName);
                         }
                         continue;
                     }
 
-                    // 只处理待处理和就绪的任务
-                    if (childTask.State != WorkflowState.Pending && childTask.State != WorkflowState.Ready) continue;
-
-                    UpdateTaskState(childTask, WorkflowState.Skipped);
+                    // 与登记任务互斥，防止多个失败父节点重复跳过同一个子节点，
+                    // 或把已经开始执行的子节点同时计为 Skipped 和 Completed。
+                    lock (_taskSchedulingLock)
+                    {
+                        if (_scheduledTaskNames.Contains(childName)
+                            || (childTask.State != WorkflowState.Pending && childTask.State != WorkflowState.Ready))
+                            continue;
+                        UpdateTaskState(childTask, WorkflowState.Skipped);
+                    }
                     EnqueueStatusNotification(childTask.Name, WorkflowState.Skipped, null, "上游失败已跳过");
 
                     // 递减剩余任务数
@@ -690,12 +730,8 @@ namespace VisionTool.Algorithm
             _snapshotOutputs = new ConcurrentDictionary<string, InspectionStepResult>();
 
             // 释放上一帧的旧结果（此时 UI 已完成渲染，可以安全释放）
-            if (_previousOutputs.Count > 0)
-            {
-                foreach (var old in _previousOutputs)
-                    old?.Dispose();
-                _previousOutputs.Clear();
-            }
+            while (_previousOutputs.TryTake(out var old))
+                old?.Dispose();
 
             // 复用入度数组而非每帧分配
             int count = _tasks.Count;
@@ -755,7 +791,8 @@ namespace VisionTool.Algorithm
                 {
                     _snapshotOutputs[task.Name] = result;
                 }
-                if (_context.StepOutputs.TryGetValue(task.Name, out var oldResult) && oldResult != null)
+                if (_context.StepOutputs.TryGetValue(task.Name, out var oldResult) && oldResult != null
+                    && !ReferenceEquals(oldResult, result))
                     _previousOutputs.Add(oldResult);
                 _context.StepOutputs[task.Name] = result;
                 EnqueueStatusNotification(task.Name, newState, result);
@@ -836,13 +873,8 @@ namespace VisionTool.Algorithm
             _snapshotOutputs = null;
 
             // 释放暂存的旧结果
-            if (_previousOutputs != null)
-            {
-                foreach (var old in _previousOutputs)
-                    old?.Dispose();
-                _previousOutputs.Clear();
-                _previousOutputs = null;
-            }
+            while (_previousOutputs.TryTake(out var old))
+                old?.Dispose();
 
             // 释放上下文（内部会释放 StepOutputs 中所有 InspectionStepResult 的 HObject 资源）
             _context?.Dispose();
