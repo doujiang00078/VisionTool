@@ -1,5 +1,14 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <!--
+    部署：本工程产物 VisionTool.dll 是「部署副本」，被消费方以 Mydll\VisionTool.dll 引用
+    （wh_multi_maincutter 主程序、自定义算法/RecipeEditor 各一份）。改完引擎源码后必须用
+    Release/x64 构建，并把 bin\x64\Release\VisionTool.dll 拷进这两处 Mydll；
+    否则现场加载的仍是旧引擎——不会编译失败、不会报错，只是"代码改了行为没变"。
+    仓库的 bin\、bin\x64\Debug\ 等目录里留有历史产物，手工拷极易拷错。
+    判版：DLL 元数据里应含 CreateFrameContext（帧上下文/多帧支持）与 ReleaseDeferredImages（阶段 0 起）。
+  -->
+
   <PropertyGroup>
     <OutputType>Library</OutputType>
     <UseWPF>true</UseWPF>

@@ -112,13 +112,22 @@ namespace VisionTool.Interfaces
 		}
 
 		/// <summary>
-		/// 获取任务参数
+		/// 获取任务参数（**内部实例，只读用**）。
+		/// 需要编辑请用 <see cref="GetEditableTaskParameters"/>（深拷贝），
+		/// 编辑后经视图抛出 ParameterChanged → <see cref="UpdateAlgorithmParameter"/> 提交。
 		/// </summary>
-		/// <returns>任务算法参数</returns>
+		/// <returns>任务算法参数（引擎内部实例）</returns>
 		public BaseParam GetTaskParameters(string taskName = "")
 		{
-			// 实际中可能需要根据 TaskName 过滤参数
 			return _inspectionService.GetTaskAlgorithmParameters(taskName == "" ? _taskName : taskName);
+		}
+
+		/// <summary>
+		/// 获取任务参数的**深拷贝**（供 UI 绑定/编辑，改它不影响正在跑的引擎；提交用 <see cref="UpdateAlgorithmParameter"/>）。
+		/// </summary>
+		public BaseParam GetEditableTaskParameters(string taskName = "")
+		{
+			return _inspectionService.GetEditableTaskAlgorithmParameters(taskName == "" ? _taskName : taskName);
 		}
 
 		/// <summary>
@@ -154,6 +163,9 @@ namespace VisionTool.Interfaces
 			return _inspectionService.GetPath();
 		}
 
+		/// <summary>
+		/// 获取当前多通道图像集合（**借用语义**：内部实例，只保证当前帧内有效；跨帧请自行 CopyObj）。
+		/// </summary>
 		public HObjectMap GetImage()
 		{
 			return _inspectionService.GetImage();

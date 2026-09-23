@@ -65,6 +65,14 @@ namespace VisionTool.UI.Presenters
 		/// </summary>
 		private HObject _currentDisplayImage;
 
+		/// <summary>
+		/// 绑定到视图的**参数副本**（惰性创建，随 Presenter 存活）。
+		/// 为什么缓存：① 视图是"就地改对象属性"的编辑方式，若每次刷新都给一份新副本，
+		/// 用户正在输入的改动会被下一次刷新覆盖；② 深拷贝是 JSON 往返，不能每帧做一遍。
+		/// 改动经视图 ParameterChanged → UpdateAlgorithmParameter 提交（加锁原子替换，下一帧生效）。
+		/// </summary>
+		private BaseParam _editableParameters;
+
 		#region 公共方法
 
 		/// <summary>
@@ -338,7 +346,8 @@ namespace VisionTool.UI.Presenters
 			if (_serviceContext == null) return;
 
 			// 获取任务参数并更新View
-			var parameters = _serviceContext.GetTaskParameters();
+			// 用缓存的**副本**绑定视图：既不每帧深拷贝，也不会把用户正在改的输入刷掉
+			var parameters = _editableParameters ??= _serviceContext.GetEditableTaskParameters();
 			_view.UpdateParameters(parameters);
 
 			if (MainPicboxControl != null)
@@ -397,14 +406,22 @@ namespace VisionTool.UI.Presenters
 			// 从服务上下文中获取当前任务的执行结果
 			var result = _serviceContext.GetTaskResult();
 
+			// 只读一次列表：结果的 Dispose（Pipeline 线程）会把该字段原子换出为 null，
+			// 分成多次读可能在中途变成 null（NRE）或换出成另一份列表。
+			var debugObjects = result?.DebugObjects;
+
 			// 检查任务结果是否存在且包含有效的调试对象
-			if (result != null && result.DebugObjects != null && result.DebugObjects.Any())
+			if (debugObjects != null && debugObjects.Count > 0)
 			{
 				// 获取第一个已初始化的HObject作为要显示的主图像
-				HObject imageToDisplay = result.DebugObjects.FirstOrDefault(o => o.IsInitialized()) as HObject;
+				HObject imageToDisplay = debugObjects.FirstOrDefault(o => o.IsInitialized()) as HObject;
 
 				// 过滤并复制所有已初始化的调试对象作为叠加层进行显示
-				List<HObject> overlaysToDisplay = result.DebugObjects.Where(o => o.IsInitialized()).Select(o => o.CopyObj(1, -1)).ToList();
+				// 注意：这些副本的所有权转移给订阅者（OnRequestMainImageDisplay），由界面负责释放——
+				// 目前调用链上没有释放点，属于潜在泄漏；因为本路径当前无写入方（DebugObjects 恒空），
+				// 暂不改造，接线时请一并补上释放。
+				List<HObject> overlaysToDisplay = debugObjects.Where(o => o != null && o.IsInitialized())
+					.Select(o => o.CopyObj(1, -1)).ToList();
 
 				// 触发事件，通知主界面更新显示的图像及其叠加层
 				OnRequestMainImageDisplay?.Invoke(imageToDisplay, overlaysToDisplay);
