@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -12,7 +12,7 @@ namespace VisionTool.Algorithm
     /// <summary>
     /// 工作流任务的抽象基类，提供通用实现和状态管理。
     /// </summary>
-    public abstract class BaseWorkflowTask : IWorkflowTask
+    public abstract class BaseWorkflowTask : IWorkflowTask, IDisposable
     {
         /// <summary>
         /// 任务名称
@@ -118,6 +118,15 @@ namespace VisionTool.Algorithm
         public virtual BaseParam CreateDefaultParameters()
         {
             return new BaseParam();
+        }
+
+        /// <summary>
+        /// 释放步骤持有的资源（算法实例、最新结果等）。派生类可重写并调用 base.Dispose()。
+        /// </summary>
+        public virtual void Dispose()
+        {
+            _latestResult?.Dispose();
+            _latestResult = null;
         }
     }
 }

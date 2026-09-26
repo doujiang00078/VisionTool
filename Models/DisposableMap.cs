@@ -94,6 +94,25 @@ namespace VisionTool.Models
 		public bool TryGetValue(string key, out T value) => _snapshot.TryGetValue(key, out value);
 
 		/// <summary>
+		/// 取出并**转移所有权**给调用方（不 Dispose）。用于结果摘除后交付给另一个拥有型容器。
+		/// 与 <see cref="Remove"/> 的区别：Remove 会释放旧值，TryTake 不会。
+		/// </summary>
+		public bool TryTake(string key, out T value)
+		{
+			lock (_lock)
+			{
+				if (_items.TryGetValue(key, out value) && value != null)
+				{
+					_items.Remove(key);
+					_snapshot = new Dictionary<string, T>(_items);
+					return true;
+				}
+				value = null;
+				return false;
+			}
+		}
+
+		/// <summary>
 		/// 移除并 Dispose 指定 key 的值，若存在的话。
 		/// </summary>
 		public bool Remove(string key)

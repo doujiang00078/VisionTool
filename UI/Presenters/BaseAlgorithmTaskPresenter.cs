@@ -65,14 +65,6 @@ namespace VisionTool.UI.Presenters
 		/// </summary>
 		private HObject _currentDisplayImage;
 
-		/// <summary>
-		/// 绑定到视图的**参数副本**（惰性创建，随 Presenter 存活）。
-		/// 为什么缓存：① 视图是"就地改对象属性"的编辑方式，若每次刷新都给一份新副本，
-		/// 用户正在输入的改动会被下一次刷新覆盖；② 深拷贝是 JSON 往返，不能每帧做一遍。
-		/// 改动经视图 ParameterChanged → UpdateAlgorithmParameter 提交（加锁原子替换，下一帧生效）。
-		/// </summary>
-		private BaseParam _editableParameters;
-
 		#region 公共方法
 
 		/// <summary>
@@ -345,9 +337,14 @@ namespace VisionTool.UI.Presenters
 		{
 			if (_serviceContext == null) return;
 
-			// 获取任务参数并更新View
-			// 用缓存的**副本**绑定视图：既不每帧深拷贝，也不会把用户正在改的输入刷掉
-			var parameters = _editableParameters ??= _serviceContext.GetEditableTaskParameters();
+			// 获取任务参数并更新View。
+			// 绑定**引擎内部实例**（不是深拷贝副本）：各算法界面是「就地改参数对象属性」的编辑模型，
+			// 几乎不会抛 ParameterChanged；若绑副本，改动只落在副本上——检测读引擎实例（不生效）、
+			// 保存配方取 GetAlgorithmParameters() 也是引擎实例（改了存不上）。
+			// 调试引擎与生产是两套 InspectionService，界面改实例不会碰到在飞的生产帧。
+			// 若将来改回「编辑副本 + 显式提交」，必须让所有视图在改动后抛 ParameterChanged，
+			// 并在运行/保存前把副本 UpdateAlgorithmParameter 回去，否则会原样复发本回归。
+			var parameters = _serviceContext.GetTaskParameters();
 			_view.UpdateParameters(parameters);
 
 			if (MainPicboxControl != null)
@@ -385,11 +382,11 @@ namespace VisionTool.UI.Presenters
 		{
 			if (_serviceContext == null) return;
 
-			// 更新服务上下文中的参数
-			_serviceContext.UpdateAlgorithmParameter(e.Key, e.Value);
+			// 一律按本任务名提交：视图里 e.Key 曾写错（色深写成 "AdjColorNode"）会提交到错误槽位
+			_serviceContext.UpdateAlgorithmParameter(TaskName, e.Value ?? _serviceContext.GetTaskParameters());
 
 			// 更新UI提示用户参数已改变
-			_view.SetStatusMessage($"参数 '{e.Key}' 已改变为 '{e.Value}'");
+			_view.SetStatusMessage($"参数 '{TaskName}' 已改变");
 		}
 
 		/// <summary>

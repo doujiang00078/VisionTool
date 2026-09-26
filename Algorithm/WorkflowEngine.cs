@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -120,6 +120,13 @@ namespace VisionTool.Algorithm
             }
 
             /// <summary>
+            /// 本帧的步骤状态（Key=任务名）。**控制流只看这里**，不看 <c>IWorkflowTask.State</c>——
+            /// 后者是跨帧共享的 UI 显示字段，并发跑两帧时会被另一帧 Reset/Skip/Cancel 踩掉，
+            /// 造成「健康帧被静默跳过下游」或「一帧取消带走另一帧」。
+            /// </summary>
+            public readonly ConcurrentDictionary<string, WorkflowState> States = new();
+
+            /// <summary>
             /// 本帧的执行上下文（每帧一份，见 <see cref="WorkflowExecutionContext"/> 的帧上下文构造）。
             /// </summary>
             public WorkflowExecutionContext Context { get; }
@@ -199,7 +206,7 @@ namespace VisionTool.Algorithm
         /// </summary>
         private readonly struct SharedParameterEntry
         {
-            public SharedParameterEntry(string path, bool frameScoped, bool isScalar, bool isCollection, object value, int length)
+            public SharedParameterEntry(string path, bool frameScoped, bool isScalar, bool isCollection, object value, int length, object firstElement = null)
             {
                 Path = path;
                 FrameScoped = frameScoped;
@@ -207,6 +214,7 @@ namespace VisionTool.Algorithm
                 IsCollection = isCollection;
                 Value = value;
                 Length = length;
+                FirstElement = firstElement;
             }
 
             public readonly string Path;
@@ -217,6 +225,11 @@ namespace VisionTool.Algorithm
 
             /// <summary>集合元素的个数（-1 表示非集合；数组用 Length）。</summary>
             public readonly int Length;
+
+            /// <summary>
+            /// 集合首元素引用：抓「Clear()+重填到相同条数」——只比引用+长度会漏掉这类就地改写。
+            /// </summary>
+            public readonly object FirstElement;
         }
 
         /// <summary>参数对象上被跟踪的一个成员（反射结果按类型缓存，见 <see cref="GetParameterMembers"/>）。</summary>
@@ -351,11 +364,15 @@ namespace VisionTool.Algorithm
                 // 使用 CAS 操作确保只执行一次
                 if (Interlocked.CompareExchange(ref run.Cancelled, 1, 0) == 0)
                 {
-                    // 将所有待处理和就绪的任务标记为已取消
-                    foreach (var task in _tasks.Values.Where(t =>
-                        t.State == WorkflowState.Pending || t.State == WorkflowState.Ready))
+                    // 只取消**本帧**待执行/就绪的步骤：共享 task.State 扫全表会带走另一帧
+                    foreach (var task in _tasks.Values)
                     {
-                        SetTaskCancelled(run, task);
+                        var st = GetRunState(run, task);
+                        if (st == WorkflowState.Pending || st == WorkflowState.Ready)
+                        {
+                            SetRunState(run, task, WorkflowState.Cancelled);
+                            EnqueueStatusNotification(task.Name, WorkflowState.Cancelled, null, "已超时取消");
+                        }
                     }
                     run.WorkflowTcs.TrySetCanceled();
                 }
@@ -449,11 +466,13 @@ namespace VisionTool.Algorithm
             lock (run.SchedulingLock)
             {
                 if (run.SchedulingStopped || run.IsCancelled || run.Token.IsCancellationRequested
-                    || run.WorkflowTcs.Task.IsCompleted || task.State == WorkflowState.Skipped
+                    || run.WorkflowTcs.Task.IsCompleted
+                    // 只看本帧状态：共享的 task.State 会被另一帧的 Reset/Skip 踩掉
+                    || GetRunState(run, task) == WorkflowState.Skipped
                     || !run.ScheduledTaskNames.Add(task.Name))
                     return;
 
-                UpdateTaskState(task, WorkflowState.Ready);
+                SetRunState(run, task, WorkflowState.Ready);
                 run.ActiveTaskCount++;
                 try
                 {
@@ -507,7 +526,7 @@ namespace VisionTool.Algorithm
                     return;
                 }
 
-                UpdateTaskState(task, WorkflowState.Running);
+                SetRunState(run, task, WorkflowState.Running);
                 EnqueueStatusNotification(task.Name, WorkflowState.Running);
 
                 Debug.WriteLine($"[{DateTime.Now:HH:mm:ss.fff}] 任务 {task.Name} 开始执行 (线程:{Thread.CurrentThread.ManagedThreadId})");
@@ -516,7 +535,7 @@ namespace VisionTool.Algorithm
 
                 // 把本步骤的终态落回任务：步骤体自己不一定写（抛异常提前退出时肯定没写），
                 // 不写的话失败步骤会一直显示"运行中"（状态查询与 UI 看的就是这个字段）。
-                UpdateTaskState(task, newState);
+                SetRunState(run, task, newState);
 
                 var context = run.Context;
                 if (context != null)
@@ -687,8 +706,9 @@ namespace VisionTool.Algorithm
                     catch { continue; }   // 取不到的成员（索引器/懒加载异常）直接跳过，不为诊断功能添麻烦
 
                     var length = member.IsCollection ? GetCollectionLength(value) : -1;
+                    var first = member.IsCollection ? GetCollectionFirst(value) : null;
                     snapshot.Add(new SharedParameterEntry($"参数[{pair.Key}].{member.Path}", member.FrameScoped,
-                        member.IsScalar, member.IsCollection, value, length));
+                        member.IsScalar, member.IsCollection, value, length, first));
                 }
             }
             return snapshot;
@@ -714,7 +734,10 @@ namespace VisionTool.Algorithm
                 if (oldEntry.IsScalar)
                     mutated = !Equals(oldEntry.Value, newEntry.Value);
                 else if (oldEntry.IsCollection)
-                    mutated = !ReferenceEquals(oldEntry.Value, newEntry.Value) || oldEntry.Length != newEntry.Length;
+                    mutated = !ReferenceEquals(oldEntry.Value, newEntry.Value) || oldEntry.Length != newEntry.Length
+                        // Clear()+重填到相同条数：引用与长度都不变，必须看首元素是否被换掉
+                        || (oldEntry.Length > 0 && newEntry.Length > 0
+                            && !ReferenceEquals(oldEntry.FirstElement, newEntry.FirstElement));
                 else
                     mutated = !ReferenceEquals(oldEntry.Value, newEntry.Value);
 
@@ -827,6 +850,25 @@ namespace VisionTool.Algorithm
             return -1;
         }
 
+        /// <summary>取集合首元素引用（用于抓 Clear()+同长度重填）；取不到返回 null。</summary>
+        private static object GetCollectionFirst(object value)
+        {
+            try
+            {
+                if (value is Array array && array.Length > 0)
+                    return array.GetValue(0);
+                if (value is System.Collections.IList list && list.Count > 0)
+                    return list[0];
+                if (value is System.Collections.IDictionary dict && dict.Count > 0)
+                {
+                    foreach (System.Collections.DictionaryEntry entry in dict)
+                        return entry.Key;
+                }
+            }
+            catch { }
+            return null;
+        }
+
         #endregion 共享参数突变检测
 
         /// <summary>
@@ -864,11 +906,20 @@ namespace VisionTool.Algorithm
             // 或者反过来被误当成别人的结果。
             var latest = task is BaseWorkflowTask baseTask ? baseTask.TakeLatestResult() : task.GetLatestResult();
 
-            if (context != null && context.StepOutputs.TryGetValue(task.Name, out var written) && written != null)
-                return written;
-
-            return latest;
+            InspectionStepResult written = null;
+            context?.StepOutputs.TryGetValue(task.Name, out written);
+            // 两份都有且不是同一对象时优先刚取走的那一份（生产步骤只写 _latestResult）；
+            // 否则会把新结果丢掉、返回 StepOutputs 里的旧条目（调试单步/同步重跑时）。
+            if (latest != null && !IsPlaceholderResult(latest)
+                && (written == null || !ReferenceEquals(written, latest)))
+                return latest;
+            return written ?? latest;
         }
+
+        private static bool IsPlaceholderResult(InspectionStepResult result) =>
+            result != null && !result.IsSuccess && result.Message == "还没有执行。"
+            && (result.Reg == null || result.Reg.Count == 0)
+            && (result.DefectiveReg == null || result.DefectiveReg.Count == 0);
 
         /// <summary>
         /// 串行执行模式：按拓扑顺序逐个执行任务。
@@ -884,12 +935,12 @@ namespace VisionTool.Algorithm
                 if (run.Token.IsCancellationRequested || run.IsCancelled) break;
 
                 var task = readyQueue.Dequeue();
-                UpdateTaskState(task, WorkflowState.Running);
+                SetRunState(run, task, WorkflowState.Running);
                 EnqueueStatusNotification(task.Name, WorkflowState.Running);
 
                 // 执行任务
                 var (newState, result) = await ExecuteTaskAsync(run.Context, run.Token, task, serial: true).ConfigureAwait(false);
-                UpdateTaskState(task, newState);
+                SetRunState(run, task, newState);
 
                 // 存储结果
                 if (run.Context.StepOutputs.TryGetValue(task.Name, out var oldResult) && oldResult != null
@@ -916,7 +967,7 @@ namespace VisionTool.Algorithm
                                 if (Interlocked.Decrement(ref run.CurrentInDegrees[idx]) == 0
                                     && _tasks.TryGetValue(childName, out var childTask))
                                 {
-                                    UpdateTaskState(childTask, WorkflowState.Ready);
+                                    SetRunState(run, childTask, WorkflowState.Ready);
                                     readyQueue.Enqueue(childTask);
                                 }
                             }
@@ -939,14 +990,15 @@ namespace VisionTool.Algorithm
                                 if (_taskNameToIndex.TryGetValue(childName, out var idx)
                                     && Interlocked.Decrement(ref run.CurrentInDegrees[idx]) == 0)
                                 {
-                                    UpdateTaskState(childTask, WorkflowState.Ready);
+                                    SetRunState(run, childTask, WorkflowState.Ready);
                                     readyQueue.Enqueue(childTask);
                                 }
                                 continue;
                             }
 
-                            if (childTask.State != WorkflowState.Pending && childTask.State != WorkflowState.Ready) continue;
-                            UpdateTaskState(childTask, WorkflowState.Skipped);
+                            if (GetRunState(run, childTask) != WorkflowState.Pending
+                                && GetRunState(run, childTask) != WorkflowState.Ready) continue;
+                            SetRunState(run, childTask, WorkflowState.Skipped);
                             EnqueueStatusNotification(childTask.Name, WorkflowState.Skipped, null, "上游失败已跳过");
                             Interlocked.Decrement(ref run.RemainingTaskCount);
 
@@ -1034,10 +1086,12 @@ namespace VisionTool.Algorithm
                     // 或把已经开始执行的子节点同时计为 Skipped 和 Completed。
                     lock (run.SchedulingLock)
                     {
-                        if (run.ScheduledTaskNames.Contains(childName)
-                            || (childTask.State != WorkflowState.Pending && childTask.State != WorkflowState.Ready))
+                        if (run.ScheduledTaskNames.Contains(childName))
                             continue;
-                        UpdateTaskState(childTask, WorkflowState.Skipped);
+                        var childState = GetRunState(run, childTask);
+                        if (childState != WorkflowState.Pending && childState != WorkflowState.Ready)
+                            continue;
+                        SetRunState(run, childTask, WorkflowState.Skipped);
                     }
                     EnqueueStatusNotification(childTask.Name, WorkflowState.Skipped, null, "上游失败已跳过");
 
@@ -1198,7 +1252,7 @@ namespace VisionTool.Algorithm
 
             foreach (var task in _tasks.Values)
             {
-                UpdateTaskState(task, WorkflowState.Pending);
+                SetRunState(run, task, WorkflowState.Pending);
                 // 计算任务的依赖数量（即入度），优先用 Count 属性避免 LINQ 分配
                 int dependencyCount = (task.Dependencies as IList<string>)?.Count
                     ?? task.Dependencies?.Count() ?? 0;
@@ -1215,6 +1269,21 @@ namespace VisionTool.Algorithm
         /// </summary>
         private void UpdateTaskState(IWorkflowTask task, WorkflowState state) => task.UpdateState(state);
 
+        /// <summary>写本帧的步骤状态（控制流）；同时镜像到任务实例仅供 UI 显示。</summary>
+        private void SetRunState(WorkflowRun run, IWorkflowTask task, WorkflowState state)
+        {
+            if (run?.States != null)
+                run.States[task.Name] = state;
+            UpdateTaskState(task, state);
+        }
+
+        private static WorkflowState GetRunState(WorkflowRun run, IWorkflowTask task)
+        {
+            if (run?.States != null && run.States.TryGetValue(task.Name, out var state))
+                return state;
+            return WorkflowState.Pending;
+        }
+
         /// <summary>
         /// 设置任务为已取消状态
         /// </summary>
@@ -1225,7 +1294,7 @@ namespace VisionTool.Algorithm
         /// <param name="task">要标记为已取消的任务</param>
         private void SetTaskCancelled(WorkflowRun run, IWorkflowTask task)
         {
-            UpdateTaskState(task, WorkflowState.Cancelled);
+            SetRunState(run, task, WorkflowState.Cancelled);
             EnqueueStatusNotification(task.Name, WorkflowState.Cancelled, null, "已超时取消");
         }
 
